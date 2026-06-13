@@ -5,7 +5,7 @@ import {
   Plus, Calendar, Edit2, Trash2, Save, X, Search, 
   TrendingUp, TrendingDown, Minus, Eye, Clock, 
   CheckCircle, AlertCircle, Layers, MapPin, Building2,
-  Database, FileText, History, BarChart3, Sparkles
+  Database, FileText, History, BarChart3, Sparkles,Home, Home as HomeIcon, Castle
 } from 'lucide-react'
 import { adminAPI } from '../../../services/authService'
 
@@ -334,10 +334,6 @@ const computeStatsFromLocations = () => {
 const fetchLocationLogs = async (locationId) => {
   try {
     // Use all logs endpoint when locationId is null
-    const url = locationId 
-      ? null // Will use getHistoryLogs with locationId
-      : null // Will use different approach
-    
     let response
     if (locationId) {
       response = await adminAPI.locationManagement.getHistoryLogs(locationId)
@@ -367,14 +363,18 @@ const fetchLocationLogs = async (locationId) => {
       logs = []
     }
     
+    //  IMPORTANT: Use the original timestamp from the database
+    // DO NOT create new Date() objects for the date field
     const formattedLogs = logs.map(log => ({
       id: log.id || log.log_id || Math.random(),
       locationId: log.location_id || log.location_rate_id || locationId,
       locationName: log.location_name || '',
       action: log.action || log.action_type || 'updated',
       year: log.year || log.record_year || null,
-      date: log.created_at || log.timestamp || log.date || new Date().toISOString(),
-      updatedBy: log.updated_by || log.user || log.performed_by || 'Admin',
+      // CRITICAL FIX: Use the original timestamp as-is
+      // The backend sends ISO format like "2024-06-08T14:30:00Z"
+      date: log.changed_at || log.created_at || log.timestamp,
+      updatedBy: log.changed_by?.username || log.updated_by || log.user || log.performed_by || 'Admin',
       details: log.details || log.description || log.message || 'Record updated',
       changes: log.changes || log.change_data || {}
     }))
@@ -429,17 +429,20 @@ const fetchYearDetail = async (locationId, year) => {
 
   // Format date
   const formatDate = (dateString) => {
-    if (!dateString) return ''
-    try {
-      const date = new Date(dateString)
-      return date.toLocaleDateString('en-US', { 
-        year: 'numeric', month: 'short', day: 'numeric', 
-        hour: '2-digit', minute: '2-digit' 
-      })
-    } catch (e) {
-      return dateString
-    }
+  if (!dateString) return ''
+  try {
+    const date = new Date(dateString)  // This is OK - just for formatting
+    return date.toLocaleDateString('en-US', { 
+      year: 'numeric', 
+      month: 'short', 
+      day: 'numeric', 
+      hour: '2-digit', 
+      minute: '2-digit' 
+    })
+  } catch (e) {
+    return dateString
   }
+}
 
     // Get price for specific year and size
   const getPriceForYear = (yearRecords, year, size, latestPrices = null) => {
@@ -532,44 +535,60 @@ const fetchYearDetail = async (locationId, year) => {
   }
 
   // Get current/latest year prices
-  const getCurrentPrices = (location) => {
-    if (!location) return {}
-    
-    // First try latestPrices from API (flat format: price_5_marla, etc.)
-    if (location.latestPrices && Object.keys(location.latestPrices).length > 0) {
+  // Get current/latest year prices
+const getCurrentPrices = (location) => {
+  if (!location) return {}
+  
+  //  FIXED: Always check for 2026 data first
+  // First try to get 2026 from yearRecords
+  if (location.yearRecords && location.yearRecords['2026']) {
+    const year2026 = location.yearRecords['2026']
+    if (year2026.prices) {
       return {
-        '5_marla': parseFloat(location.latestPrices.price_5_marla) || 0,
-        '10_marla': parseFloat(location.latestPrices.price_10_marla) || 0,
-        '1_kanal': parseFloat(location.latestPrices.price_1_kanal) || 0,
-        '2_kanal': parseFloat(location.latestPrices.price_2_kanal) || 0
+        '5_marla': parseFloat(year2026.prices['5_marla']) || 0,
+        '10_marla': parseFloat(year2026.prices['10_marla']) || 0,
+        '1_kanal': parseFloat(year2026.prices['1_kanal']) || 0,
+        '2_kanal': parseFloat(year2026.prices['2_kanal']) || 0
       }
-    }
-    
-    if (!location.yearRecords) return {}
-    
-    if (Array.isArray(location.yearRecords)) {
-      const lastItem = location.yearRecords[location.yearRecords.length - 1]
-      if (lastItem?.prices) return lastItem.prices
-      return {
-        '5_marla': parseFloat(lastItem?.price_5_marla) || 0,
-        '10_marla': parseFloat(lastItem?.price_10_marla) || 0,
-        '1_kanal': parseFloat(lastItem?.price_1_kanal) || 0,
-        '2_kanal': parseFloat(lastItem?.price_2_kanal) || 0
-      }
-    }
-    
-    const yrKeys = getLocationYears(location)
-    if (yrKeys.length === 0) return {}
-    const latestYr = yrKeys[0]
-    const rec = location.yearRecords[latestYr]
-    if (rec?.prices) return rec.prices
-    return {
-      '5_marla': parseFloat(rec?.price_5_marla) || 0,
-      '10_marla': parseFloat(rec?.price_10_marla) || 0,
-      '1_kanal': parseFloat(rec?.price_1_kanal) || 0,
-      '2_kanal': parseFloat(rec?.price_2_kanal) || 0
     }
   }
+  
+  // Then try latestPrices from API
+  if (location.latestPrices && Object.keys(location.latestPrices).length > 0) {
+    return {
+      '5_marla': parseFloat(location.latestPrices.price_5_marla) || 0,
+      '10_marla': parseFloat(location.latestPrices.price_10_marla) || 0,
+      '1_kanal': parseFloat(location.latestPrices.price_1_kanal) || 0,
+      '2_kanal': parseFloat(location.latestPrices.price_2_kanal) || 0
+    }
+  }
+  
+  // Fallback to latest year from yearRecords
+  if (!location.yearRecords) return {}
+  
+  if (Array.isArray(location.yearRecords)) {
+    const lastItem = location.yearRecords[location.yearRecords.length - 1]
+    if (lastItem?.prices) return lastItem.prices
+    return {
+      '5_marla': parseFloat(lastItem?.price_5_marla) || 0,
+      '10_marla': parseFloat(lastItem?.price_10_marla) || 0,
+      '1_kanal': parseFloat(lastItem?.price_1_kanal) || 0,
+      '2_kanal': parseFloat(lastItem?.price_2_kanal) || 0
+    }
+  }
+  
+  const yrKeys = getLocationYears(location)
+  if (yrKeys.length === 0) return {}
+  const latestYr = yrKeys[0]
+  const rec = location.yearRecords[latestYr]
+  if (rec?.prices) return rec.prices
+  return {
+    '5_marla': parseFloat(rec?.price_5_marla) || 0,
+    '10_marla': parseFloat(rec?.price_10_marla) || 0,
+    '1_kanal': parseFloat(rec?.price_1_kanal) || 0,
+    '2_kanal': parseFloat(rec?.price_2_kanal) || 0
+  }
+}
 
   // Get location history logs
   const locationLogs = useMemo(() => {
@@ -592,26 +611,60 @@ const fetchYearDetail = async (locationId, year) => {
   }, [priceHistoryLogs, searchTerm, activeTab])
 
   // Filtered locations
-  const filteredLocations = useMemo(() => {
-    let result = [...locations]
-    if (searchTerm) {
-      result = result.filter(loc => 
-        loc.locationName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        loc.area.toLowerCase().includes(searchTerm.toLowerCase())
-      )
-    }
-    if (filterArea !== 'All') {
-      result = result.filter(loc => loc.area === filterArea)
-    }
-    if (sortConfig.key) {
-      result.sort((a, b) => {
-        if (a[sortConfig.key] < b[sortConfig.key]) return sortConfig.direction === 'asc' ? -1 : 1
-        if (a[sortConfig.key] > b[sortConfig.key]) return sortConfig.direction === 'asc' ? 1 : -1
-        return 0
-      })
-    }
-    return result
-  }, [locations, searchTerm, filterArea, sortConfig])
+  // const filteredLocations = useMemo(() => {
+  //   let result = [...locations]
+  //   if (searchTerm) {
+  //     result = result.filter(loc => 
+  //       loc.locationName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+  //       loc.area.toLowerCase().includes(searchTerm.toLowerCase())
+  //     )
+  //   }
+  //   if (filterArea !== 'All') {
+  //     result = result.filter(loc => loc.area === filterArea)
+  //   }
+  //   if (sortConfig.key) {
+  //     result.sort((a, b) => {
+  //       if (a[sortConfig.key] < b[sortConfig.key]) return sortConfig.direction === 'asc' ? -1 : 1
+  //       if (a[sortConfig.key] > b[sortConfig.key]) return sortConfig.direction === 'asc' ? 1 : -1
+  //       return 0
+  //     })
+  //   }
+  //   return result
+  // }, [locations, searchTerm, filterArea, sortConfig])
+
+  // At the top with other useState declarations (around line 20-30)
+const [currentPage, setCurrentPage] = useState(1)
+const locationsPerPage = 4
+
+// AFTER the filteredLocations useMemo (around line 580-600)
+const filteredLocations = useMemo(() => {
+  let result = [...locations]
+  if (searchTerm) {
+    result = result.filter(loc => 
+      loc.locationName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      loc.area.toLowerCase().includes(searchTerm.toLowerCase())
+    )
+  }
+  if (filterArea !== 'All') {
+    result = result.filter(loc => loc.area === filterArea)
+  }
+  if (sortConfig.key) {
+    result.sort((a, b) => {
+      if (a[sortConfig.key] < b[sortConfig.key]) return sortConfig.direction === 'asc' ? -1 : 1
+      if (a[sortConfig.key] > b[sortConfig.key]) return sortConfig.direction === 'asc' ? 1 : -1
+      return 0
+    })
+  }
+  return result
+}, [locations, searchTerm, filterArea, sortConfig])
+
+//  MOVE PAGINATION HERE (after filteredLocations)
+const indexOfLastLocation = currentPage * locationsPerPage
+const indexOfFirstLocation = indexOfLastLocation - locationsPerPage
+const paginatedLocations = filteredLocations.slice(indexOfFirstLocation, indexOfLastLocation)
+const totalPages = Math.ceil(filteredLocations.length / locationsPerPage)
+const startIndex = indexOfFirstLocation
+const endIndex = indexOfLastLocation
 
   const areas = useMemo(() => ['All', ...new Set(locations.map(loc => loc.area))], [locations])
   const sizes = ['5_marla', '10_marla', '1_kanal', '2_kanal']
@@ -787,7 +840,7 @@ const handleSaveEdit = async () => {
       fetchLocationLogs(editingLocation.id)
       
       setShowEditModal(false)
-      setSuccessMessage(`✅ Prices updated for ${editingLocation.locationName}`)
+      setSuccessMessage(` Prices updated for ${editingLocation.locationName}`)
       setTimeout(() => setSuccessMessage(''), 4000)
       
     } catch (error) {
@@ -854,7 +907,7 @@ fetchLocationLogs(null) // null = all logs
       })
       
       setShowAddModal(false)
-      setSuccessMessage('✅ Location added successfully!')
+      setSuccessMessage(' Location added successfully!')
       setTimeout(() => setSuccessMessage(''), 4000)
       
     } catch (error) {
@@ -895,180 +948,208 @@ fetchLocationLogs(null) // null = all logs
   }
 
   // Handle add a specific year to existing location
-  const handleAddYear = async () => {
-    if (!selectedLocation || !newYearData.year) {
-      setSuccessMessage('⚠️ Please enter a year')
-      setTimeout(() => setSuccessMessage(''), 4000)
-      return
+  // Handle add a specific year to existing location
+const handleAddYear = async () => {
+  if (!selectedLocation || !newYearData.year) {
+    setSuccessMessage('⚠️ Please enter a year')
+    setTimeout(() => setSuccessMessage(''), 4000)
+    return
+  }
+
+  if (selectedLocation.yearRecords && selectedLocation.yearRecords[newYearData.year]) {
+    setSuccessMessage(`⚠️ Year ${newYearData.year} already exists for this location!`)
+    setTimeout(() => setSuccessMessage(''), 4000)
+    return
+  }
+
+  try {
+    setIsLoading(true)
+    
+    const p = newYearData.prices
+    const payload = {
+      year: parseInt(newYearData.year),
+      price_5_marla: p['5_marla'] !== '' && p['5_marla'] !== undefined ? Number(p['5_marla']) : 0,
+      price_10_marla: p['10_marla'] !== '' && p['10_marla'] !== undefined ? Number(p['10_marla']) : 0,
+      price_1_kanal: p['1_kanal'] !== '' && p['1_kanal'] !== undefined ? Number(p['1_kanal']) : 0,
+      price_2_kanal: p['2_kanal'] !== '' && p['2_kanal'] !== undefined ? Number(p['2_kanal']) : 0
     }
 
-    if (selectedLocation.yearRecords && selectedLocation.yearRecords[newYearData.year]) {
-      setSuccessMessage(`⚠️ Year ${newYearData.year} already exists for this location!`)
-      setTimeout(() => setSuccessMessage(''), 4000)
-      return
+    console.log('Adding year payload:', JSON.stringify(payload))
+    
+    const response = await adminAPI.locationManagement.addYear(selectedLocation.id, payload)
+    console.log('Add year response:', response.data)
+    
+    //  FIXED: Use selectedLocation, not editingLocation
+    const newYear = String(payload.year)
+    const updatedLocation = { ...selectedLocation }
+    updatedLocation.yearRecords = { ...updatedLocation.yearRecords }
+    updatedLocation.yearRecords[newYear] = {
+      prices: {
+        '5_marla': payload.price_5_marla,
+        '10_marla': payload.price_10_marla,
+        '1_kanal': payload.price_1_kanal,
+        '2_kanal': payload.price_2_kanal
+      },
+      updatedAt: new Date().toISOString()
     }
-
-    try {
-      setIsLoading(true)
-      
-      const p = newYearData.prices
-const payload = {
-  year: parseInt(newYearData.year),
-  price_5_marla: p['5_marla'] !== '' && p['5_marla'] !== undefined ? Number(p['5_marla']) : 0,
-  price_10_marla: p['10_marla'] !== '' && p['10_marla'] !== undefined ? Number(p['10_marla']) : 0,
-  price_1_kanal: p['1_kanal'] !== '' && p['1_kanal'] !== undefined ? Number(p['1_kanal']) : 0,
-  price_2_kanal: p['2_kanal'] !== '' && p['2_kanal'] !== undefined ? Number(p['2_kanal']) : 0
+    
+    // Update availableYears
+    if (!updatedLocation.availableYears.includes(payload.year)) {
+      updatedLocation.availableYears = [...updatedLocation.availableYears, payload.year]
+    }
+    
+    //  FIXED: Use selectedLocation.id instead of editingLocation.id
+    setLocations(prev => prev.map(loc => {
+      if (loc.id === selectedLocation.id) {
+        return updatedLocation
+      }
+      return loc
+    }))
+    
+    setSelectedLocation(updatedLocation)
+    
+    await fetchDashboardStats()
+    
+    if (selectedLocation) {
+      fetchLocationLogs(selectedLocation.id)
+    }
+    
+    setShowAddYearModal(false)
+    setNewYearData({ 
+      year: '', 
+      prices: { '5_marla': 0, '10_marla': 0, '1_kanal': 0, '2_kanal': 0 } 
+    })
+    
+    setSuccessMessage(` Year ${newYearData.year} added to ${selectedLocation.locationName}`)
+    setTimeout(() => setSuccessMessage(''), 4000)
+    
+  } catch (error) {
+    console.error('Error adding year:', error)
+    const errorData = error.response?.data
+    let errorMsg = 'Failed to add year'
+    
+    if (errorData) {
+      if (typeof errorData === 'string') {
+        errorMsg = errorData
+      } else if (errorData.message) {
+        errorMsg = errorData.message
+      } else if (errorData.error) {
+        errorMsg = errorData.error
+      } else if (errorData.errors) {
+        const details = Object.entries(errorData.errors)
+          .map(([key, val]) => `${key}: ${Array.isArray(val) ? val.join(', ') : val}`)
+          .join(' | ')
+        if (details) errorMsg = details
+      }
+    }
+    
+    setSuccessMessage('❌ ' + errorMsg)
+    setTimeout(() => setSuccessMessage(''), 6000)
+    
+  } finally {
+    setIsLoading(false)
+  }
 }
 
-      console.log('Adding year payload:', JSON.stringify(payload))
-      
-      const response = await adminAPI.locationManagement.addYear(selectedLocation.id, payload)
-      console.log('Add year response:', response.data)
-      
-      // Add the new year data locally before refreshing
-      const newYear = String(payload.year)
-      const updatedLocation = { ...selectedLocation }
-      updatedLocation.yearRecords = { ...updatedLocation.yearRecords }
-      updatedLocation.yearRecords[newYear] = {
-        prices: {
-          '5_marla': payload.price_5_marla,
-          '10_marla': payload.price_10_marla,
-          '1_kanal': payload.price_1_kanal,
-          '2_kanal': payload.price_2_kanal
-        },
-        updatedAt: new Date().toISOString()
-      }
-      
-      // Update availableYears
-      if (!updatedLocation.availableYears.includes(payload.year)) {
-        updatedLocation.availableYears = [...updatedLocation.availableYears, payload.year]
-      }
-      
-      // Update locations state
-      // Update locations state immediately
-setLocations(prev => prev.map(loc => {
-  if (loc.id === editingLocation.id) {
-    const updatedLatestPrices = { ...loc.latestPrices }
-    Object.keys(editPrices).forEach(year => {
-      if (String(year) === '2026') {
-        const p = editPrices[year]?.prices || {}
-        sizes.forEach(size => {
-          const val = p[size] ?? p[`price_${size}`]
-          if (val !== undefined) {
-            updatedLatestPrices[`price_${size}`] = String(val)
-          }
-        })
-      }
-    })
-    return {
-      ...updatedLocation,
-      latestPrices: updatedLatestPrices
-    }
-  }
-  return loc
-}))
-setSelectedLocation(updatedLocation)
+  // Handle delete specific year
+  // Handle delete specific year
+// Handle delete specific year
+const handleDeleteYear = async () => {
+  if (!selectedLocation || !yearToDelete) return
 
-// Refresh stats only, not full location list
-await fetchDashboardStats()
-      
-      if (selectedLocation) {
-        fetchLocationLogs(selectedLocation.id)
-      }
-      
-      setShowAddYearModal(false)
-      setNewYearData({ 
-        year: '', 
-        prices: { '5_marla': 0, '10_marla': 0, '1_kanal': 0, '2_kanal': 0 } 
-      })
-      
-      setSuccessMessage(`✅ Year ${newYearData.year} added to ${selectedLocation.locationName}`)
-      setTimeout(() => setSuccessMessage(''), 4000)
-      
-    } catch (error) {
-      console.error('Error adding year:', error)
-      const errorData = error.response?.data
-      let errorMsg = 'Failed to add year'
-      
-      if (errorData) {
-        if (typeof errorData === 'string') {
-          errorMsg = errorData
-        } else if (errorData.message) {
-          errorMsg = errorData.message
-        } else if (errorData.error) {
-          errorMsg = errorData.error
-        } else if (errorData.errors) {
-          const details = Object.entries(errorData.errors)
-            .map(([key, val]) => `${key}: ${Array.isArray(val) ? val.join(', ') : val}`)
-            .join(' | ')
-          if (details) errorMsg = details
+  try {
+    setIsLoading(true)
+    
+    console.log('Deleting year:', yearToDelete, 'from location:', selectedLocation.id)
+    
+    await adminAPI.locationManagement.deleteYearRate(selectedLocation.id, yearToDelete)
+    
+    // Update local state immediately
+    setLocations(prev => prev.map(loc => {
+      if (loc.id === selectedLocation.id) {
+        const updatedYearRecords = { ...loc.yearRecords }
+        delete updatedYearRecords[String(yearToDelete)]
+        const updatedAvailableYears = (loc.availableYears || []).filter(y => y !== parseInt(yearToDelete))
+        
+        // If deleting 2026, clear latestPrices
+        let updatedLatestPrices = { ...loc.latestPrices }
+        if (parseInt(yearToDelete) === 2026) {
+          updatedLatestPrices = {}
+        }
+        
+        return { 
+          ...loc, 
+          yearRecords: updatedYearRecords, 
+          availableYears: updatedAvailableYears,
+          latestPrices: updatedLatestPrices
         }
       }
-      
-      setSuccessMessage('❌ ' + errorMsg)
-      setTimeout(() => setSuccessMessage(''), 6000)
-      
-    } finally {
-      setIsLoading(false)
-    }
-  }
+      return loc
+    }))
 
-  // Handle delete specific year
-  const handleDeleteYear = async () => {
-    if (!selectedLocation || !yearToDelete) return
-
-    try {
-      setIsLoading(true)
+    setSelectedLocation(prev => {
+      if (!prev) return prev
+      const updatedYearRecords = { ...prev.yearRecords }
+      delete updatedYearRecords[String(yearToDelete)]
+      const updatedAvailableYears = (prev.availableYears || []).filter(y => y !== parseInt(yearToDelete))
       
-      console.log('Deleting year:', yearToDelete, 'from location:', selectedLocation.id)
-      
-      await adminAPI.locationManagement.deleteYearRate(selectedLocation.id, yearToDelete)
-      
-      // Refresh data
-      // Update local state immediately
-setLocations(prev => prev.map(loc => {
-  if (loc.id === selectedLocation.id) {
-    const updatedYearRecords = { ...loc.yearRecords }
-    delete updatedYearRecords[String(yearToDelete)]
-    const updatedAvailableYears = (loc.availableYears || []).filter(y => y !== parseInt(yearToDelete))
-    return { ...loc, yearRecords: updatedYearRecords, availableYears: updatedAvailableYears }
-  }
-  return loc
-}))
-
-setSelectedLocation(prev => {
-  if (!prev) return prev
-  const updatedYearRecords = { ...prev.yearRecords }
-  delete updatedYearRecords[String(yearToDelete)]
-  const updatedAvailableYears = (prev.availableYears || []).filter(y => y !== parseInt(yearToDelete))
-  return { ...prev, yearRecords: updatedYearRecords, availableYears: updatedAvailableYears }
-})
-
-// Refresh stats
-await fetchDashboardStats()
-      
-      if (selectedLocation) {
-        fetchLocationLogs(selectedLocation.id)
+      // If deleting 2026, clear latestPrices
+      let updatedLatestPrices = { ...prev.latestPrices }
+      if (parseInt(yearToDelete) === 2026) {
+        updatedLatestPrices = {}
       }
       
-      setShowDeleteYearConfirm(false)
-      setYearToDelete(null)
-      
-      setSuccessMessage(`🗑️ Year ${yearToDelete} removed from ${selectedLocation.locationName}`)
-      setTimeout(() => setSuccessMessage(''), 4000)
-      
-    } catch (error) {
-      console.error('Error deleting year:', error)
-      console.error('Error response:', error.response?.data)
-      
-      const errorMsg = error.response?.data?.message || error.response?.data?.error || 'Failed to delete year'
-      setSuccessMessage('❌ ' + errorMsg)
-      setTimeout(() => setSuccessMessage(''), 6000)
-      
-    } finally {
-      setIsLoading(false)
+      return { 
+        ...prev, 
+        yearRecords: updatedYearRecords, 
+        availableYears: updatedAvailableYears,
+        latestPrices: updatedLatestPrices
+      }
+    })
+
+    await fetchDashboardStats()
+    
+    if (selectedLocation) {
+      fetchLocationLogs(selectedLocation.id)
     }
+    
+    // FIX: Auto-select first available year after deletion
+    const remainingYears = getLocationYears({
+      ...selectedLocation,
+      yearRecords: (() => {
+        const updated = { ...selectedLocation.yearRecords }
+        delete updated[String(yearToDelete)]
+        return updated
+      })(),
+      availableYears: (selectedLocation.availableYears || []).filter(y => y !== parseInt(yearToDelete))
+    })
+    
+    if (remainingYears.length > 0) {
+      const firstYear = remainingYears[0]
+      setSelectedYear(firstYear)
+      // Fetch the newly selected year data
+      setTimeout(() => fetchYearDetail(selectedLocation.id, firstYear), 100)
+    } else {
+      // No years left - reset year selection
+      setSelectedYear('')
+    }
+    
+    setShowDeleteYearConfirm(false)
+    setYearToDelete(null)
+    
+    setSuccessMessage(`🗑️ Year ${yearToDelete} removed from ${selectedLocation.locationName}`)
+    setTimeout(() => setSuccessMessage(''), 4000)
+    
+  } catch (error) {
+    console.error('Error deleting year:', error)
+    const errorMsg = error.response?.data?.message || error.response?.data?.error || 'Failed to delete year'
+    setSuccessMessage('❌ ' + errorMsg)
+    setTimeout(() => setSuccessMessage(''), 6000)
+    
+  } finally {
+    setIsLoading(false)
   }
+}
 
   // Handle delete location
   const handleDeleteLocation = async () => {
@@ -1111,7 +1192,7 @@ await fetchDashboardStats()
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
               <div>
                 <h1 className="text-2xl lg:text-3xl font-bold text-gray-900 flex items-center gap-3">
-                  <Database className="w-7 h-7 text-blue-600" />
+                  <Database className="w-7 h-7 text-emerald-600" />
                   Price History Management
                 </h1>
                 <p className="text-gray-500 mt-1">Track and manage independent yearly price records for all locations</p>
@@ -1126,7 +1207,7 @@ await fetchDashboardStats()
   })
   setShowAddModal(true)
 }}
-                className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl text-sm font-medium hover:shadow-lg transition-all"
+                className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-emerald-700 text-white rounded-xl text-sm font-medium hover:shadow-lg transition-all"
               >
                 <Plus className="w-4 h-4" />
                 Add New Location
@@ -1148,53 +1229,51 @@ await fetchDashboardStats()
 
           {/* Stats Cards */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+            <div className="bg-white rounded-xl p-4 shadow-sm border border-emerald-600">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center">
-                  <MapPin className="w-5 h-5 text-blue-600" />
+                <div className="w-11 h-11 bg-emerald-100 rounded-xl flex items-center justify-center">
+                  <MapPin className="w-7 h-7 text-emerald-600" />
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500">Total Locations</p>
+                  <p className="text-xs text-gray-900">Total Locations</p>
                   <p className="text-xl font-bold text-gray-800">{stats.totalLocations}</p>
                 </div>
               </div>
             </div>
-            <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+            <div className="bg-white rounded-xl p-4 shadow-sm border border-emerald-600">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center">
-                  <Database className="w-5 h-5 text-purple-600" />
+                <div className="w-11 h-11 bg-purple-100 rounded-xl flex items-center justify-center">
+                  <Database className="w-7 h-7 text-purple-600" />
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500">Total Year Records</p>
+                  <p className="text-xs text-gray-900">Total Year Records</p>
                   <p className="text-xl font-bold text-gray-800">
                    {stats.totalRecords}
                   </p>
                 </div>
               </div>
             </div>
-            <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+            <div className="bg-white rounded-xl p-4 shadow-sm border border-emerald-600">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-green-100 rounded-xl flex items-center justify-center">
-                  <FileText className="w-5 h-5 text-green-600" />
+                <div className="w-11 h-11 bg-green-100 rounded-xl flex items-center justify-center">
+                  <FileText className="w-7 h-7 text-green-600" />
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500">Total Updates</p>
+                  <p className="text-xs text-gray-900">Total Updates</p>
                   <p className="text-xl font-bold text-gray-800">{stats.locationsWithData}</p>
                 </div>
               </div>
             </div>
-            <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+            <div className="bg-white rounded-xl p-4 shadow-sm border border-emerald-600">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center">
-                  <Calendar className="w-5 h-5 text-amber-600" />
+                <div className="w-11 h-11 bg-amber-100 rounded-xl flex items-center justify-center">
+                  <Calendar className="w-7 h-7  text-amber-600" />
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500">Years Tracked</p>
-                  <p className="text-xl font-bold text-gray-800">{stats.yearRange?.min && stats.yearRange?.max 
-            ? `${stats.yearRange.min} - ${stats.yearRange.max}` 
-            : allAvailableYears.length > 0 
-              ? `${Math.min(...allAvailableYears)} - ${Math.max(...allAvailableYears)}`
-              : 'N/A'}</p>
+                  <p className="text-xs text-gray-900">Years Tracked</p>
+                  <p className="text-xl font-bold text-gray-800">
+                    2022 - 2026
+              </p>
                 </div>
               </div>
             </div>
@@ -1204,69 +1283,137 @@ await fetchDashboardStats()
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             
             {/* LEFT COLUMN - Location List */}
-            <div className="lg:col-span-1">
-              <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-                <div className="p-4 border-b border-gray-100">
-                  <h2 className="text-lg font-semibold text-gray-800 mb-3">📍 Locations</h2>
-                  <div className="space-y-2">
-                    <div className="relative">
-                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                      <input
-                        type="text"
-                        placeholder="Search locations..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
-                    </div>
-                    <select
-                      value={filterArea}
-                      onChange={(e) => setFilterArea(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      {areas.map(area => (
-                        <option key={area} value={area}>{area === 'All' ? '🏘️ All Areas' : area}</option>
-                      ))}
-                    </select>
-                  </div>
+          <div className="lg:col-span-1">
+  <div className="bg-white rounded-xl shadow-sm border border-emerald-600 overflow-hidden">
+    <div className="p-4 border-b border-gray-100">
+      <h2 className="text-lg font-semibold text-gray-800 mb-3">📍 Locations</h2>
+      <div className="space-y-2">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+          <input
+            type="text"
+            placeholder="Search locations..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-transparent"
+          />
+        </div>
+        <select
+          value={filterArea}
+          onChange={(e) => setFilterArea(e.target.value)}
+          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-transparent"
+        >
+          {areas.map(area => (
+            <option key={area} value={area}>{area === 'All' ? ' All Areas' : area}</option>
+          ))}
+        </select>
+      </div>
+    </div>
+    
+    <div className="divide-y divide-gray-50 max-h-[600px] overflow-y-auto">
+      {/* Use paginatedLocations instead of filteredLocations */}
+      {paginatedLocations.length > 0 ? (
+        paginatedLocations.map(location => {
+          const currentPrices = getCurrentPrices(location)
+          const years = getLocationYears(location)
+          return (
+            <div
+              key={location.id}
+              onClick={() => {
+                setSelectedLocation(location)
+                fetchLocationLogs(location.id)
+              }}
+              className={`p-4 cursor-pointer transition-all duration-200 hover:bg-gray-50 ${
+                selectedLocation?.id === location.id 
+                  ? 'bg-blue-50 border-l-4 border-blue-600' 
+                  : 'border-l-4 border-transparent'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-800">{location.locationName}</h3>
+                  <p className="text-xs text-gray-500">{location.area}</p>
                 </div>
-                <div className="divide-y divide-gray-50 max-h-[600px] overflow-y-auto">
-                  {filteredLocations.map(location => {
-                    const currentPrices = getCurrentPrices(location)
-                    const years = getLocationYears(location)
-                    return (
-                      <div
-                        key={location.id}
-                        onClick={() => {
-  setSelectedLocation(location)
-  fetchLocationLogs(location.id)
-}}
-                        className={`p-4 cursor-pointer transition-all duration-200 hover:bg-gray-50 ${
-                          selectedLocation?.id === location.id 
-                            ? 'bg-blue-50 border-l-4 border-blue-600' 
-                            : 'border-l-4 border-transparent'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <h3 className="text-sm font-semibold text-gray-800">{location.locationName}</h3>
-                            <p className="text-xs text-gray-500">{location.area}</p>
-                          </div>
-                          <span className="text-xs text-gray-400">{years.length} years</span>
-                        </div>
-                        <div className="mt-2 grid grid-cols-2 gap-1 text-xs">
-                          <span className="text-gray-500">5M: <span className="font-medium text-gray-700">{formatCurrency(currentPrices['5_marla'])}</span></span>
-                          <span className="text-gray-500">10M: <span className="font-medium text-gray-700">{formatCurrency(currentPrices['10_marla'])}</span></span>
-                        </div>
-                        <div className="mt-1 text-xs text-gray-400">
-                          Years: {years.slice(0, 4).join(', ')}{years.length > 4 ? '...' : ''}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
+                <span className="text-xs text-gray-400">{years.length} years</span>
+              </div>
+              <div className="mt-2 grid grid-cols-2 gap-1 text-xs">
+                <span className="text-gray-500">5M: <span className="font-medium text-gray-700">{formatCurrency(currentPrices['5_marla'])}</span></span>
+                <span className="text-gray-500">10M: <span className="font-medium text-gray-700">{formatCurrency(currentPrices['10_marla'])}</span></span>
+              </div>
+              <div className="mt-1 text-xs text-gray-400">
+                Years: {years.slice(0, 4).join(', ')}{years.length > 4 ? '...' : ''}
               </div>
             </div>
+          )
+        })
+      ) : (
+        <div className="p-8 text-center text-gray-500">
+          <p>No locations found</p>
+        </div>
+      )}
+    </div>
+    
+    {/* Pagination - Show 5 locations per page */}
+    {totalPages > 1 && (
+      <div className="p-3 border-t border-gray-100 bg-gray-50">
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-gray-500">
+            Showing {startIndex + 1} to {Math.min(endIndex, filteredLocations.length)} of {filteredLocations.length} locations
+          </span>
+          <div className="flex gap-1">
+            <button
+              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+              disabled={currentPage === 1}
+              className={`px-2 py-1 rounded text-xs transition-all ${
+                currentPage === 1
+                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                  : 'bg-white text-gray-700 hover:bg-emerald-50 hover:text-emerald-600 border border-gray-200'
+              }`}
+            >
+              ←
+            </button>
+            {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+              let pageNum
+              if (totalPages <= 5) {
+                pageNum = i + 1
+              } else if (currentPage <= 3) {
+                pageNum = i + 1
+              } else if (currentPage >= totalPages - 2) {
+                pageNum = totalPages - 4 + i
+              } else {
+                pageNum = currentPage - 2 + i
+              }
+              return (
+                <button
+                  key={pageNum}
+                  onClick={() => setCurrentPage(pageNum)}
+                  className={`px-2.5 py-1 rounded text-xs transition-all ${
+                    currentPage === pageNum
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-white text-gray-700 hover:bg-emerald-50 hover:text-emerald-600 border border-gray-200'
+                  }`}
+                >
+                  {pageNum}
+                </button>
+              )
+            })}
+            <button
+              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+              disabled={currentPage === totalPages}
+              className={`px-2 py-1 rounded text-xs transition-all ${
+                currentPage === totalPages
+                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                  : 'bg-white text-gray-700 hover:bg-emerald-50 hover:text-emerald-600 border border-gray-200'
+              }`}
+            >
+              →
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+  </div>
+</div>
 
             {/* RIGHT COLUMN - Details */}
             <div className="lg:col-span-2">
@@ -1274,7 +1421,7 @@ await fetchDashboardStats()
                 <div className="space-y-6">
                   
                   {/* Location Header */}
-                  <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+                  <div className="bg-white rounded-xl shadow-sm border border-emerald-600 p-6">
                     <div className="flex flex-row items-center justify-between gap-4">
                       <div>
                         <h2 className="text-xl font-bold text-gray-800">{selectedLocation.locationName}</h2>
@@ -1341,7 +1488,7 @@ await fetchDashboardStats()
 }}
                             className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-t-lg transition-all ${
                               activeTab === tab.id
-                                ? 'bg-white text-blue-600 border border-b-white border-gray-100 -mb-px'
+                                ? 'bg-white text-emerald-600 border border-b-white border-gray-50 -mb-px'
                                 : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
                             }`}
                           >
@@ -1355,7 +1502,7 @@ await fetchDashboardStats()
 
                   {/* CURRENT RATES TAB */}
                 {activeTab === 'current' && (
-  <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+  <div className="bg-white rounded-xl shadow-sm border border-emerald-600 p-6">
     <h3 className="text-lg font-semibold text-gray-800 mb-4">
       Current Market Rates (2026)
     </h3>
@@ -1397,10 +1544,18 @@ await fetchDashboardStats()
 {console.log('📍 yearRecords keys:', selectedLocation?.yearRecords ? Object.keys(selectedLocation.yearRecords) : 'none')}
 {console.log('📍 Has 2026 in availableYears?', selectedLocation?.availableYears?.includes(2026))}
   return (
-    <div key={size} className="bg-gradient-to-br from-gray-50 to-white p-5 rounded-xl border border-gray-100 hover:shadow-md transition-shadow">
+    <div key={size} className="bg-gradient-to-br from-gray-50 to-white p-5 rounded-xl border border-emerald-600 hover:shadow-md transition-shadow">
       <div className="flex items-center justify-between mb-3">
         <span className="text-2xl">
-          {size === '5_marla' ? '🏠' : size === '10_marla' ? '🏡' : size === '1_kanal' ? '🏘️' : '🏰'}
+         {size === '5_marla' ? (
+  <Home className="w-10 h-10 text-emerald-500" />
+) : size === '10_marla' ? (
+  <HomeIcon className="w-10 h-10 text-blue-500" />
+) : size === '1_kanal' ? (
+  <Building2 className="w-10 h-10 text-purple-500" />
+) : (
+  <Castle className="w-10 h-10 text-amber-500" />
+)}
         </span>
         {prevPrice > 0 && (
           <span className={`text-xs font-semibold px-2 py-1 rounded-full flex items-center gap-1 ${
@@ -1432,7 +1587,7 @@ await fetchDashboardStats()
 
                   {/* YEAR HISTORY TAB with Improved Delete Year Control */}
                  {activeTab === 'historical' && (
-  <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+  <div className="bg-white rounded-xl shadow-sm border border-emerald-600 overflow-hidden">
     <div className="p-6">
       {getLocationYears(selectedLocation).length > 0 ? (
         <>
@@ -1440,7 +1595,7 @@ await fetchDashboardStats()
             <h3 className="text-lg font-semibold text-gray-800">Year-wise Price Records</h3>
             <div className="flex gap-2 flex-wrap items-center">
               <div className="relative">
-                <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 text-emerald-600 w-4 h-4" />
                 <select
                   value={selectedYear}
                   onChange={(e) => {
@@ -1449,7 +1604,7 @@ await fetchDashboardStats()
                     setYearDataLoading(true)
                     setTimeout(() => fetchYearDetail(selectedLocation?.id, newYear), 50)
                   }}
-                  className="pl-10 pr-8 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  className="pl-10 pr-8 py-2 border border-emerald-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                 >
                   {getLocationYears(selectedLocation).map(year => (
                     <option key={year} value={year}>{year}</option>
@@ -1481,7 +1636,7 @@ await fetchDashboardStats()
                 }}
                 className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
                   selectedYear === year
-                    ? 'bg-blue-600 text-white shadow-md'
+                    ? 'bg-emerald-600 text-white shadow-md'
                     : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                 }`}
               >
@@ -1572,11 +1727,11 @@ await fetchDashboardStats()
 
                   {/* UPDATE LOGS TAB */}
                   {activeTab === 'logs' && (
-                    <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div className="bg-white rounded-xl shadow-sm border border-emerald-600 overflow-hidden">
                       <div className="p-6">
                         <div className="flex items-center justify-between mb-4">
                           <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
-                            <Clock className="w-5 h-5 text-blue-600" />
+                            <Clock className="w-5 h-5 text-emerald-600" />
                             Update History Timeline
                           </h3>
                           <div className="relative">
@@ -1586,7 +1741,7 @@ await fetchDashboardStats()
                               placeholder="Search logs..."
                               value={searchTerm}
                               onChange={(e) => setSearchTerm(e.target.value)}
-                              className="pl-10 pr-4 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-48"
+                              className="pl-10 pr-4 py-1.5 border border-emerald-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-48"
                             />
                           </div>
                         </div>
@@ -1675,16 +1830,16 @@ await fetchDashboardStats()
       {showEditModal && editingLocation && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-y-auto">
-            <div className="p-6 sticky top-0 bg-white border-b border-gray-100 z-10">
+            <div className="pt-3 pl-6 pb-3 sticky top-0 bg-white border-b border-emerald-600 z-10">
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
-                    <Edit2 className="w-5 h-5 text-blue-600" />
+                    <Edit2 className="w-5 h-5 text-emerald-600" />
                     Edit All Year Records
                   </h2>
                   <p className="text-sm text-gray-500">{editingLocation.locationName} • {editingLocation.area}</p>
                 </div>
-                <button onClick={() => setShowEditModal(false)} className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-xl transition-colors">
+                <button onClick={() => setShowEditModal(false)} className="p-3 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-xl transition-colors">
                   <X className="w-5 h-5" />
                 </button>
               </div>
@@ -1700,12 +1855,12 @@ await fetchDashboardStats()
                 <div className="overflow-x-auto">
                   <table className="w-full">
                     <thead>
-                      <tr className="bg-gray-50">
-                        <th className="text-left p-3 text-xs font-semibold text-gray-600 uppercase">Year</th>
-                        <th className="text-left p-3 text-xs font-semibold text-gray-600 uppercase">5 Marla</th>
-                        <th className="text-left p-3 text-xs font-semibold text-gray-600 uppercase">10 Marla</th>
-                        <th className="text-left p-3 text-xs font-semibold text-gray-600 uppercase">1 Kanal</th>
-                        <th className="text-left p-3 text-xs font-semibold text-gray-600 uppercase">2 Kanal</th>
+                      <tr className="bg-emerald-600">
+                        <th className="text-left p-3 text-xs font-semibold text-white uppercase">Year</th>
+                        <th className="text-left p-3 text-xs font-semibold text-white uppercase">5 Marla</th>
+                        <th className="text-left p-3 text-xs font-semibold text-white uppercase">10 Marla</th>
+                        <th className="text-left p-3 text-xs font-semibold text-white uppercase">1 Kanal</th>
+                        <th className="text-left p-3 text-xs font-semibold text-white uppercase">2 Kanal</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1731,9 +1886,8 @@ await fetchDashboardStats()
         type="number"
         value={currentVal}
         onChange={(e) => setEditYearPrice(year, size, e.target.value)}
-        className={`w-full px-2 py-1.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${
-          hasChanged ? 'border-amber-400 bg-amber-50' : 'border-gray-200'
-        }`}
+        className={`w-full px-2 py-1.5 text-sm border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-400 caret-emerald-400 `
+      }
       />
       {hasChanged && (
         <div className="text-xs mt-1 text-gray-400 line-through">
@@ -1751,10 +1905,10 @@ await fetchDashboardStats()
               )}
 
               <div className="flex gap-3 mt-8 pt-4 border-t border-gray-100">
-                <button onClick={() => setShowEditModal(false)} className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors">
+                <button onClick={() => setShowEditModal(false)} className="flex-1 px-4 py-2.5 border border-emerald-300 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors">
                   Cancel
                 </button>
-                <button onClick={handleSaveEdit} className="flex-1 px-4 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl text-sm font-medium hover:shadow-md transition-all flex items-center justify-center gap-2">
+                <button onClick={handleSaveEdit} className="flex-1 px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-emerald-700 text-white rounded-xl text-sm font-medium hover:shadow-md transition-all flex items-center justify-center gap-2">
                   <Save className="w-4 h-4" />
                   Save All Changes
                 </button>
@@ -1764,8 +1918,6 @@ await fetchDashboardStats()
         </div>
       )}
 
-      {/* ADD YEAR MODAL - Improved */}
-     {/* ADD YEAR MODAL - Improved with Dynamic Year Dropdown */}
 {/* ADD YEAR MODAL - With Database-Driven Year Dropdown */}
 {showAddYearModal && selectedLocation && (
   <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
@@ -1812,10 +1964,10 @@ await fetchDashboardStats()
     .filter(y => !isNaN(y))
     .sort((a, b) => b - a)
   
-  console.log('📅 fromAPI raw:', selectedLocation?.availableYears)
-  console.log('📅 yearRecords raw:', selectedLocation?.yearRecords)
-  console.log('📅 fromRecords extracted:', fromRecords)
-  console.log('📅 existingYears:', existingYears)
+  console.log(' fromAPI raw:', selectedLocation?.availableYears)
+  console.log(' yearRecords raw:', selectedLocation?.yearRecords)
+  console.log(' fromRecords extracted:', fromRecords)
+  console.log(' existingYears:', existingYears)
   
   // All possible years
   const allYears = [2026, 2025, 2024, 2023, 2022, 2021, 2020]
@@ -1823,14 +1975,14 @@ await fetchDashboardStats()
   // Only show years NOT in database
   const availableYears = allYears.filter(year => !existingYears.includes(year))
   
-  console.log('✅ Available for add:', availableYears)
+  console.log(' Available for add:', availableYears)
   
   return (
     <>
       <select
         value={newYearData.year}
         onChange={(e) => setNewYearData(prev => ({ ...prev, year: e.target.value }))}
-        className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent bg-white"
+        className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-transparent bg-white"
       >
         <option value="">-- Select a Year --</option>
         {availableYears.length === 0 ? (
@@ -1861,7 +2013,7 @@ await fetchDashboardStats()
 
         {/* Prices Section - Only show if year selected */}
         {newYearData.year ? (
-          <div className="bg-gray-50 rounded-xl p-4 mb-5">
+          <div className="bg-white rounded-xl p-4 mb-5">
             <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-emerald-500" />
               Prices for {newYearData.year}
@@ -1897,7 +2049,7 @@ await fetchDashboardStats()
         <div className="flex gap-3">
           <button 
             onClick={() => setShowAddYearModal(false)} 
-            className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors"
+            className="flex-1 px-4 py-2.5 border border-emerald-300 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors"
           >
             Cancel
           </button>
@@ -1955,7 +2107,7 @@ await fetchDashboardStats()
             <div className="p-6">
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
-                  <Plus className="w-5 h-5 text-blue-600" />
+                  <Plus className="w-5 h-5 text-emerald-600" />
                   Add New Location
                 </h2>
                 <button onClick={() => setShowAddModal(false)} className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-xl transition-colors">
@@ -1966,11 +2118,11 @@ await fetchDashboardStats()
               <div className="grid grid-cols-2 gap-4 mb-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Location Name *</label>
-                  <input type="text" value={newLocation.locationName} onChange={(e) => setNewLocation(prev => ({ ...prev, locationName: e.target.value }))} placeholder="e.g., DHA Phase 9" className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  <input type="text" value={newLocation.locationName} onChange={(e) => setNewLocation(prev => ({ ...prev, locationName: e.target.value }))} placeholder="e.g., DHA Phase 9" className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Area *</label>
-                  <input type="text" value={newLocation.area} onChange={(e) => setNewLocation(prev => ({ ...prev, area: e.target.value }))} placeholder="e.g., DHA" className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  <input type="text" value={newLocation.area} onChange={(e) => setNewLocation(prev => ({ ...prev, area: e.target.value }))} placeholder="e.g., DHA" className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600" />
                 </div>
               </div>
 
@@ -1979,18 +2131,18 @@ await fetchDashboardStats()
   <select
     value={newLocation.initialYear}
     onChange={(e) => setNewLocation(prev => ({ ...prev, initialYear: e.target.value }))}
-    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600"
   >
     {[2026].map(year => (
       <option key={year} value={year}>{year}</option>
     ))}
   </select>
-  <p className="text-xs text-gray-400 mt-1">City will be set to: <span className="font-semibold text-blue-600">Lahore</span></p>
+  <p className="text-xs text-gray-500 mt-1">City will be set to: <span className="font-semibold text-emerald-600">Lahore</span></p>
 </div>
 
               <div className="flex gap-3">
-                <button onClick={() => setShowAddModal(false)} className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors">Cancel</button>
-                <button onClick={handleAddLocation} disabled={!newLocation.locationName || !newLocation.area} className="flex-1 px-4 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl text-sm font-medium hover:shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+                <button onClick={() => setShowAddModal(false)} className="flex-1 px-4 py-2.5 border border-emerald-300 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors">Cancel</button>
+                <button onClick={handleAddLocation} disabled={!newLocation.locationName || !newLocation.area} className="flex-1 px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-xl text-sm font-medium hover:shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
                   <Plus className="w-4 h-4" />
                   Add Location
                 </button>

@@ -4,31 +4,55 @@ import axios from 'axios';
 const API_BASE_URL = 'http://127.0.0.1:8000';
 
 /**
- * Setup Axios Interceptors
- * - Adds auth token to requests
- * - Handles token expiration
- * - Handles unauthorized access
+ * Check if admin token is expired
  */
-export const setupAxiosInterceptors = () => {
-  // Request interceptor - Add token to all requests
+export const isAdminTokenExpired = () => {
+  const token = localStorage.getItem('admin_access_token');
+  if (!token) return true;
+  
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    const expiryTime = payload.exp * 1000;
+    return Date.now() >= expiryTime;
+  } catch (e) {
+    console.error('Token parse error:', e);
+    return true;
+  }
+};
+
+/**
+ * Clear admin authentication data (Logout)
+ */
+export const clearAdminAuth = () => {
+  localStorage.removeItem('admin_access_token');
+  localStorage.removeItem('admin_refresh_token');
+  localStorage.removeItem('isAdminLoggedIn');
+  localStorage.removeItem('adminData');
+};
+
+/**
+ * Setup Axios Interceptors
+ */
+export const setupAxiosInterceptors = (navigate) => {
+  // Clear existing interceptors to avoid duplicates
+  axios.interceptors.request.clear?.();
+  axios.interceptors.response.clear?.();
+  
+  // Request interceptor
   axios.interceptors.request.use(
     (config) => {
       const token = localStorage.getItem('admin_access_token');
-      if (token) {
+      if (token && !isAdminTokenExpired()) {
         config.headers.Authorization = `Bearer ${token}`;
       }
       return config;
     },
-    (error) => {
-      return Promise.reject(error);
-    }
+    (error) => Promise.reject(error)
   );
 
-  // Response interceptor - Handle token expiration
+  // Response interceptor - NO window.location.href
   axios.interceptors.response.use(
-    (response) => {
-      return response;
-    },
+    (response) => response,
     async (error) => {
       const originalRequest = error.config;
 
@@ -36,38 +60,28 @@ export const setupAxiosInterceptors = () => {
       if (error.response?.status === 401 && !originalRequest._retry) {
         originalRequest._retry = true;
 
-        // Try to refresh the token
         const refreshToken = localStorage.getItem('admin_refresh_token');
         
         if (refreshToken) {
           try {
-            // FIXED: Use correct JWT refresh endpoint
             const response = await axios.post(`${API_BASE_URL}/api/token/refresh/`, {
               refresh: refreshToken
             });
 
             if (response.data.access) {
-              // Update the access token
               localStorage.setItem('admin_access_token', response.data.access);
-              
-              // Retry the original request with new token
               originalRequest.headers.Authorization = `Bearer ${response.data.access}`;
               return axios(originalRequest);
             }
           } catch (refreshError) {
-            // Refresh failed - logout user
+            console.error('Refresh failed:', refreshError);
             clearAdminAuth();
-            window.location.href = '/sign_in';
-            return Promise.reject(refreshError);
           }
         } else {
-          // No refresh token - logout
           clearAdminAuth();
-          window.location.href = '/sign_in';
         }
       }
 
-      // Handle 403 Forbidden - Admin trying to access wrong portal
       if (error.response?.status === 403) {
         console.error('Access denied:', error.response.data);
       }
@@ -84,8 +98,12 @@ export const isAdminLoggedIn = () => {
   const isLoggedIn = localStorage.getItem('isAdminLoggedIn');
   const token = localStorage.getItem('admin_access_token');
   
-  if (isLoggedIn === 'true' && token) {
+  if (isLoggedIn === 'true' && token && !isAdminTokenExpired()) {
     return true;
+  }
+  
+  if (token && isAdminTokenExpired()) {
+    clearAdminAuth();
   }
   
   return false;
@@ -111,7 +129,12 @@ export const getAdminData = () => {
  * Get admin token
  */
 export const getAdminToken = () => {
-  return localStorage.getItem('admin_access_token');
+  const token = localStorage.getItem('admin_access_token');
+  if (token && isAdminTokenExpired()) {
+    clearAdminAuth();
+    return null;
+  }
+  return token;
 };
 
 /**
@@ -123,23 +146,12 @@ export const getAdminRefreshToken = () => {
 
 /**
  * Save admin authentication data
- * FIXED: Token key names match JWT response
  */
 export const setAdminAuth = (accessToken, refreshToken, adminData) => {
   localStorage.setItem('admin_access_token', accessToken);
   localStorage.setItem('admin_refresh_token', refreshToken);
   localStorage.setItem('isAdminLoggedIn', 'true');
   localStorage.setItem('adminData', JSON.stringify(adminData));
-};
-
-/**
- * Clear admin authentication data (Logout)
- */
-export const clearAdminAuth = () => {
-  localStorage.removeItem('admin_access_token');
-  localStorage.removeItem('admin_refresh_token');
-  localStorage.removeItem('isAdminLoggedIn');
-  localStorage.removeItem('adminData');
 };
 
 /**
@@ -167,18 +179,26 @@ export const verifyAdminToken = async () => {
 export const logoutAdmin = async () => {
   try {
     const refreshToken = getAdminRefreshToken();
+    const accessToken = getAdminToken();
     
-    // Call logout API
-    if (refreshToken) {
+    if (refreshToken && accessToken) {
       await axios.post(`${API_BASE_URL}/api/admin/logout`, {
         refresh_token: refreshToken
+      }, {
+        headers: { Authorization: `Bearer ${accessToken}` }
       });
     }
   } catch (error) {
     console.error('Logout error:', error);
   } finally {
-    // Clear local storage regardless of API call success
     clearAdminAuth();
+  }
+};
+
+export const logoutAdminWithNavigate = (navigate) => {
+  clearAdminAuth();
+  if (navigate) {
+    navigate('/sign_in');
   }
 };
 
@@ -186,11 +206,6 @@ export const logoutAdmin = async () => {
  * API Helper Functions
  */
 export const adminAPI = {
-  // ==========================================
-  // ADMIN AUTHENTICATION
-  // ==========================================
-  
-  // Admin Login
   adminLogin: (credentials) => {
     return axios.post(`${API_BASE_URL}/api/admin/login`, {
       username_or_email: credentials.username_or_email,
@@ -198,12 +213,10 @@ export const adminAPI = {
     });
   },
 
-  // Admin Profile
   getProfile: () => {
     return axios.get(`${API_BASE_URL}/api/admin/profile`);
   },
 
-  // Change Password
   changePassword: (data) => {
     return axios.post(`${API_BASE_URL}/api/admin/change-password`, {
       old_password: data.old_password,
@@ -212,7 +225,6 @@ export const adminAPI = {
     });
   },
 
-  // Admin Logout
   logout: () => {
     const refreshToken = localStorage.getItem('admin_refresh_token');
     return axios.post(`${API_BASE_URL}/api/admin/logout`, {
@@ -220,87 +232,85 @@ export const adminAPI = {
     });
   },
 
-  // ==========================================
-  // USER MANAGEMENT (Admin only)
-  // ==========================================
+  adminForgotPassword: (email) => {
+    return axios.post(`${API_BASE_URL}/api/admin/forgot-password/`, { email });
+  },
 
-  // Get all users with filters
- // Get all users with filters
+  adminVerifyOTP: (email, otp) => {
+    return axios.post(`${API_BASE_URL}/api/admin/verify-otp/`, { email, otp });
+  },
+
+  adminResetPassword: (email, newPassword, confirmPassword) => {
+    return axios.post(`${API_BASE_URL}/api/admin/reset-password/`, { 
+      email, 
+      new_password: newPassword, 
+      confirm_password: confirmPassword 
+    });
+  },
+
+  adminSignup: (data) => {
+    return axios.post(`${API_BASE_URL}/api/admin/signup`, {
+      username: data.username,
+      email: data.email,
+      phone: data.phone || '',
+      password: data.password,
+      confirm_password: data.confirm_password
+    });
+  },
+
+  // ... rest of your adminAPI methods remain the same
   getUsers: (params = {}) => {
     return axios.get(`${API_BASE_URL}/api/admin/users/`, { params });
   },
 
-  // Get dashboard stats
   getDashboardStats: () => {
     return axios.get(`${API_BASE_URL}/api/admin/users/stats/`);
   },
 
-  // Get single user details
   getUserDetails: (userId) => {
     return axios.get(`${API_BASE_URL}/api/admin/users/${userId}/`);
   },
 
-  // Create new user/admin
   createUser: (data) => {
     return axios.post(`${API_BASE_URL}/api/admin/users/create/`, data);
   },
 
-  // Update user
   updateUser: (userId, data) => {
     return axios.put(`${API_BASE_URL}/api/admin/users/update/${userId}/`, data);
   },
 
-  // Delete user
   deleteUser: (userId) => {
     return axios.delete(`${API_BASE_URL}/api/admin/users/delete/${userId}/`);
   },
 
-  // Change user status (activate/deactivate)
   changeUserStatus: (userId, status) => {
     return axios.post(`${API_BASE_URL}/api/admin/users/change-status/${userId}/`, { status });
   },
 
-  // Change user role (admin/user)
   changeUserRole: (userId, role) => {
     return axios.post(`${API_BASE_URL}/api/admin/users/change-role/${userId}/`, { role });
   },
 
-  // Bulk user actions
   bulkUserAction: (data) => {
     return axios.post(`${API_BASE_URL}/api/admin/users/bulk-action/`, data);
   },
 
-  // ==========================================
-  // HISTORICAL RATES (Public - No Auth)
-  // ==========================================
-
   historicalRates: {
-    // Get dashboard statistics
     getDashboardStats: () => {
       return axios.get(`${API_BASE_URL}/api/historical-rates/public/stats`);
     },
-
-    // Get all locations with current rates
     getLocations: (params = {}) => {
       return axios.get(`${API_BASE_URL}/api/historical-rates/public/locations`, { params });
     },
-
     addYear: (locationId, data) => {
-  console.log('🔵 API Call - addYear:', { locationId, data })
-  return axios.post(`${API_BASE_URL}/api/historical-rates/admin/locations/${locationId}/add-year`, data)
-},
-
-    // Get single location details with all historical data
+      return axios.post(`${API_BASE_URL}/api/historical-rates/admin/locations/${locationId}/add-year`, data)
+    },
     getLocationDetail: (locationId) => {
       return axios.get(`${API_BASE_URL}/api/historical-rates/public/locations/${locationId}`);
     },
-
-    // Get available years for a location
     getLocationYears: (locationId) => {
       return axios.get(`${API_BASE_URL}/api/historical-rates/public/locations/${locationId}/years`);
     },
-
-    // Compare prices between two years
     compareYears: (locationId, year1, year2) => {
       return axios.get(`${API_BASE_URL}/api/historical-rates/public/locations/${locationId}/compare-years`, {
         params: { year1, year2 }
@@ -308,12 +318,7 @@ export const adminAPI = {
     },
   },
 
-  // ==========================================
-  // LOCATION MANAGEMENT (Admin only)
-  // ==========================================
-
   locationManagement: {
-    // Get all locations (admin view)
     getLocations: (params = {}) => {
       return axios.get(`${API_BASE_URL}/api/historical-rates/admin/locations`, { params });
     },
@@ -398,48 +403,30 @@ export const adminAPI = {
     },
   },
 
-  // ==========================================
   // LISTINGS MANAGEMENT
-  // ==========================================
 
   listings: {
-    // Get all listings
     getListings: (params = {}) => {
       return axios.get(`${API_BASE_URL}/api/listings/admin/listings`, { params });
     },
-
-    // Get single listing
     getListingDetails: (listingId) => {
       return axios.get(`${API_BASE_URL}/api/listings/admin/listings/${listingId}`);
     },
-
-    // Create listing
     createListing: (data) => {
       return axios.post(`${API_BASE_URL}/api/listings/admin/add`, data);
     },
-
-    // Update listing
     updateListing: (listingId, data) => {
       return axios.put(`${API_BASE_URL}/api/listings/admin/update/${listingId}`, data);
     },
-
-    // Delete listing
     deleteListing: (listingId) => {
       return axios.delete(`${API_BASE_URL}/api/listings/admin/delete/${listingId}`);
     },
-
-    // Get locations for dropdown
     getLocations: () => {
       return axios.get(`${API_BASE_URL}/api/locations/`);
     },
   },
 
-  // ==========================================
-  // USER (Regular User) APIs
-  // ==========================================
-
   user: {
-    // Register new user
     register: (data) => {
       return axios.post(`${API_BASE_URL}/api/register/`, {
         username: data.username,
@@ -449,26 +436,18 @@ export const adminAPI = {
         phone: data.phone || ''
       });
     },
-
-    // User login
     login: (credentials) => {
       return axios.post(`${API_BASE_URL}/api/login/`, {
         email: credentials.email,
         password: credentials.password
       });
     },
-
-    // Get user profile
     getProfile: () => {
       return axios.get(`${API_BASE_URL}/api/user/profile`);
     },
-
-    // Update user profile
     updateProfile: (data) => {
       return axios.put(`${API_BASE_URL}/api/user/profile`, data);
     },
-
-    // Change password
     changePassword: (data) => {
       return axios.post(`${API_BASE_URL}/api/user/change-password`, {
         old_password: data.old_password,
@@ -476,24 +455,15 @@ export const adminAPI = {
         confirm_password: data.confirm_password
       });
     },
-
-    // Get user's prediction history
     getPredictionHistory: () => {
       return axios.get(`${API_BASE_URL}/api/user/predictions`);
     },
   },
 
-  // ==========================================
-  // PREDICTIONS
-  // ==========================================
-
   predictions: {
-    // Make price prediction
     predict: (data) => {
       return axios.post(`${API_BASE_URL}/api/predict`, data);
     },
-
-    // Save prediction request
     savePrediction: (data) => {
       return axios.post(`${API_BASE_URL}/api/predict/save`, data);
     },

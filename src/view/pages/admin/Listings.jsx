@@ -4,6 +4,7 @@ import Sidebar from '../../components/Sidebar'
 import Navbar from '../../components/AdminNavbar'
 import axios from 'axios'
 import { toast } from 'sonner'
+import { Home, Building2, DollarSign, Star, TrendingUp } from 'lucide-react';
 
 const Listings = () => {
   const navigate = useNavigate()
@@ -16,7 +17,6 @@ const Listings = () => {
     return localStorage.getItem('admin_access_token')
   }
 
-  // ✅ Fetch admin's own listings from API
   const fetchProperties = async () => {
     setLoading(true)
     try {
@@ -56,7 +56,6 @@ const Listings = () => {
     fetchProperties()
   }, [])
 
-  // ✅ Delete property
   const deleteProperty = async (listingId) => {
     if (!window.confirm('Are you sure you want to delete this property?')) return
 
@@ -122,6 +121,14 @@ const Listings = () => {
     return 'Admin'
   }
 
+  const totalListings = properties.length
+  const soldProperties = properties.filter(p => p.property_status === 'sold').length
+  const availableProperties = properties.filter(p => p.property_status === 'available').length
+  const activeProperties = properties.filter(p => p.property_status === 'available').length
+  const totalRevenue = properties
+    .filter(p => p.property_status === 'sold' && p.expected_revenue)
+    .reduce((sum, p) => sum + (parseFloat(p.expected_revenue) || 0), 0)
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50">
@@ -185,51 +192,70 @@ const Listings = () => {
 
           {/* Stats Cards */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-            <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm">
+            {/* Total Listings */}
+            <div className="bg-white rounded-xl border border-emerald-600 p-4 shadow-sm">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center text-xl">🏠</div>
+                <div className="w-13 h-13 rounded-lg bg-blue-50 flex items-center justify-center">
+                  <Home className="w-7 h-7 text-blue-600" />
+                </div>
                 <div>
                   <p className="text-xs font-medium text-gray-500 uppercase">Total Listings</p>
-                  <p className="text-2xl font-bold text-gray-900">{properties.length}</p>
+                  <p className="text-2xl font-bold text-gray-900">{totalListings}</p>
                 </div>
               </div>
             </div>
-            <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm">
+
+            {/* CHANGED: For Rent → For Sold */}
+            <div className="bg-white rounded-xl border border-emerald-600 p-4 shadow-sm">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-green-50 flex items-center justify-center text-xl">🏘️</div>
+                <div className="w-13 h-13 rounded-lg bg-red-50 flex items-center justify-center">
+                  <Building2 className="w-7 h-7 text-red-600" />
+                </div>
                 <div>
-                  <p className="text-xs font-medium text-gray-500 uppercase">For Rent</p>
-                  <p className="text-2xl font-bold text-gray-900">{properties.filter(p => p.property_status === 'rent').length}</p>
+                  <p className="text-xs font-medium text-gray-500 uppercase">For Sold</p>
+                  <p className="text-2xl font-bold text-gray-900">{soldProperties}</p>
                 </div>
               </div>
             </div>
-            <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm">
+
+            {/* For Sale / Available */}
+            <div className="bg-white rounded-xl border border-emerald-600 p-4 shadow-sm">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-purple-50 flex items-center justify-center text-xl">💰</div>
+                <div className="w-13 h-13 rounded-lg bg-green-50 flex items-center justify-center">
+                  <DollarSign className="w-7 h-7 text-green-600" />
+                </div>
                 <div>
                   <p className="text-xs font-medium text-gray-500 uppercase">For Sale</p>
-                  <p className="text-2xl font-bold text-gray-900">{properties.filter(p => p.property_status === 'available').length}</p>
+                  <p className="text-2xl font-bold text-gray-900">{availableProperties}</p>
                 </div>
               </div>
             </div>
-            <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm">
+
+            {/* Active Properties */}
+            <div className="bg-white rounded-xl border border-emerald-600 p-4 shadow-sm">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-yellow-50 flex items-center justify-center text-xl">⭐</div>
+                <div className="w-13 h-13 rounded-lg bg-yellow-50 flex items-center justify-center">
+                  <Star className="w-7 h-7 text-yellow-600" />
+                </div>
                 <div>
                   <p className="text-xs font-medium text-gray-500 uppercase">Active</p>
-                  <p className="text-2xl font-bold text-gray-900">{properties.filter(p => p.property_status === 'available' || p.property_status === 'rent').length}</p>
+                  <p className="text-2xl font-bold text-gray-900">{activeProperties}</p>
                 </div>
               </div>
             </div>
+
+
           </div>
 
           {/* Grid View */}
           {viewMode === 'grid' && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               {properties.length === 0 ? (
-                <div className="col-span-full text-center py-12">
-                  <div className="text-6xl mb-4">🏠</div>
-                  <h3 className="text-lg font-medium text-gray-900 mb-1">No listings yet</h3>
+                <div className="col-span-full text-center py-10">
+                  <div className="inline-block ">
+                    <Home className="w-17 h-17 text-emerald-500 mx-auto" />
+                  </div>
+                  <h3 className="text-xl font-medium text-gray-900 mb-1">No listings yet</h3>
                   <p className="text-gray-500 mb-4">Get started by adding your first property</p>
                   <Link
                     to="/add-property"
@@ -241,15 +267,44 @@ const Listings = () => {
               ) : (
                 properties.map((property) => (
                   <div key={property.listing_id} className="bg-white rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition overflow-hidden flex flex-col h-full">
-                    <div className="h-40 bg-gradient-to-br from-emerald-100 to-teal-100 flex items-center justify-center text-5xl flex-shrink-0">
-                      {property.primary_image ? (
-                        <img src={property.primary_image} alt={property.title} className="w-full h-full object-cover" />
-                      ) : (
-                        getPropertyIcon(property.title)
-                      )}
-                    </div>
+                   <div className="h-36 bg-gradient-to-br from-emerald-100 to-teal-100 flex items-center justify-center text-5xl flex-shrink-0 relative">
+  {property.primary_image ? (
+    <img src={property.primary_image} alt={property.title} className="w-full h-full object-cover" />
+  ) : (
+    getPropertyIcon(property.title)
+  )}
+  
+  {property.property_status === 'sold' && (
+    <div className="absolute top-2 right-2 bg-red-500 text-white text-xs px-2 py-1 rounded-full shadow-md">
+      SOLD
+    </div>
+  )}
+  {property.property_status === 'available' && (
+    <div className="absolute top-2 right-2 bg-green-500 text-white text-xs px-2 py-1 rounded-full shadow-md">
+      AVAILABLE
+    </div>
+  )}
+  
+  {property.property_status === 'sold' && property.expected_revenue && (
+            <div className="absolute bottom-2 right-2 bg-emerald-600 text-white text-xs px-2 py-1 rounded-full font-semibold shadow-md">
+              Profit: {formatPrice(property.expected_revenue)}
+            </div>
+          )}
+  {/* {property.property_status === 'sold' && property.expected_revenue && (
+              <div className="absolute bottom-2 right-2 bg-emerald-600 text-white text-xs px-2 py-1 rounded-full font-semibold shadow-md">
+                Profit: {formatPrice(property.expected_revenue)}
+              </div>
+            )} */}
+
+
+{property.property_status === 'sold' && property.buyer_name && (
+  <div className="absolute bottom-2 left-2 bg-amber-500 text-white text-xs px-2 py-1 rounded-full shadow-md font-medium">
+  {property.buyer_name}
+  </div>
+)}
+</div>
                     
-                    <div className="p-4 flex flex-col flex-1">
+                    <div className="p-2 flex flex-col flex-1">
                       <div>
                         <h3 className="text-base font-semibold text-gray-900 line-clamp-1">{property.title}</h3>
                         <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">{property.location_name || 'N/A'}</p>
@@ -266,9 +321,6 @@ const Listings = () => {
                       <div className="mt-3 pt-2 border-t border-gray-100 flex items-center justify-between">
                         <div>
                           <p className="text-sm font-bold text-emerald-600">{formatPrice(property.price)}</p>
-                          <span className="text-xs text-gray-400">
-                            {property.property_status === 'rent' ? '/month' : property.property_status === 'sold' ? 'Sold' : 'For Sale'}
-                          </span>
                         </div>
                         <div className="flex gap-1">
                           <Link
@@ -311,7 +363,7 @@ const Listings = () => {
                 properties.map((property) => (
                   <div key={property.listing_id} className="flex items-center justify-between p-4 border-b border-gray-100 last:border-0 hover:bg-gray-50 transition">
                     <div className="flex items-center gap-3 flex-1 min-w-0">
-                      <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-emerald-100 to-teal-100 flex items-center justify-center text-xl flex-shrink-0">
+                      <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-emerald-100 to-teal-100 flex items-center justify-center text-xl flex-shrink-0 relative">
                         {property.primary_image ? (
                           <img src={property.primary_image} alt={property.title} className="w-full h-full rounded-lg object-cover" />
                         ) : (
@@ -327,7 +379,16 @@ const Listings = () => {
                           <span className="text-xs text-gray-500">{property.bathrooms || 0} baths</span>
                           <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
                           <span className="text-xs font-medium text-emerald-600">{formatPrice(property.price)}</span>
+                          {property.property_status === 'sold' && (
+                            <span className="text-xs text-red-500 ml-1">(Sold)</span>
+                          )}
                         </div>
+                        {property.property_status === 'sold' && property.buyer_name && (
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            Buyer: {property.buyer_name}
+                            {property.expected_revenue && ` | Profit: ${formatPrice(property.expected_revenue)}`}
+                          </p>
+                        )}
                       </div>
                     </div>
                     <div className="flex gap-1 flex-shrink-0 ml-2">

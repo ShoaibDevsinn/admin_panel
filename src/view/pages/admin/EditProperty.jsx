@@ -4,6 +4,7 @@ import Sidebar from '../../components/Sidebar'
 import Navbar from '../../components/AdminNavbar'
 import axios from 'axios'
 import { toast } from 'sonner'
+import { ArrowLeft } from 'lucide-react'
 
 const EditProperty = () => {
   const navigate = useNavigate()
@@ -16,6 +17,10 @@ const EditProperty = () => {
   const [images, setImages] = useState([])
   const [imagePreview, setImagePreview] = useState([])
   const [existingImages, setExistingImages] = useState([])
+  
+  // Field errors state
+  const [fieldErrors, setFieldErrors] = useState({})
+  const [serverErrors, setServerErrors] = useState({})
 
   const [formData, setFormData] = useState({
     title: '',
@@ -23,6 +28,7 @@ const EditProperty = () => {
     location: '',
     area_marla: '',
     price: '',
+    property_type: '',  
     property_status: 'available',
     rent_price: '',
     bedrooms: '',
@@ -33,6 +39,8 @@ const EditProperty = () => {
     servant_rooms: '',
     store_rooms: '',
     current_per_marla_rate: '',
+    expected_revenue: '',
+    buyer_name: '',
     has_lawn: false,
     has_parking: false,
     has_security: false,
@@ -53,7 +61,56 @@ const EditProperty = () => {
     return localStorage.getItem('admin_access_token')
   }
 
-  // ✅ Fetch locations
+  const [selectedImageForPreview, setSelectedImageForPreview] = useState(null);
+  const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
+
+  const openImagePreview = (imageUrl) => {
+    setSelectedImageForPreview(imageUrl);
+    setIsPreviewModalOpen(true);
+  };
+
+  const closeImagePreview = () => {
+    setSelectedImageForPreview(null);
+    setIsPreviewModalOpen(false);
+  };
+
+  const isRevenueValid = () => {
+    if (!formData.expected_revenue || !formData.price) return true;
+    return parseFloat(formData.expected_revenue) <= parseFloat(formData.price);
+  };
+
+  const isBuyerNameRequired = formData.property_status === 'sold';
+
+  //  Helper function to display backend errors
+  const displayBackendErrors = (errors) => {
+    const newServerErrors = {};
+    let firstErrorMessage = '';
+    
+    for (const [field, messages] of Object.entries(errors)) {
+      const errorMsg = Array.isArray(messages) ? messages[0] : messages;
+      newServerErrors[field] = errorMsg;
+      if (!firstErrorMessage) firstErrorMessage = errorMsg;
+    }
+    
+    setServerErrors(newServerErrors);
+    setFieldErrors(prev => ({ ...prev, ...newServerErrors }));
+    
+    if (firstErrorMessage) {
+      toast.error(firstErrorMessage);
+    }
+  };
+
+  //  Clear errors when field changes
+  const clearFieldError = (fieldName) => {
+    if (fieldErrors[fieldName]) {
+      setFieldErrors(prev => ({ ...prev, [fieldName]: "" }));
+    }
+    if (serverErrors[fieldName]) {
+      setServerErrors(prev => ({ ...prev, [fieldName]: "" }));
+    }
+  };
+
+  // Fetch locations
   const fetchLocations = async () => {
     try {
       setLocationsLoading(true)
@@ -83,7 +140,7 @@ const EditProperty = () => {
     }
   }
 
-  // ✅ Fetch property data from API
+  // Fetch property data from API
   useEffect(() => {
     const fetchProperty = async () => {
       setLoading(true)
@@ -107,6 +164,7 @@ const EditProperty = () => {
             location: property.location || '',
             area_marla: property.area_marla || '',
             price: property.price || '',
+            property_type: property.property_type || '',
             property_status: property.property_status || 'available',
             rent_price: property.rent_price || '',
             bedrooms: property.bedrooms || '',
@@ -117,6 +175,8 @@ const EditProperty = () => {
             servant_rooms: property.servant_rooms || '',
             store_rooms: property.store_rooms || '',
             current_per_marla_rate: property.current_per_marla_rate || '',
+            expected_revenue: property.expected_revenue || '',
+            buyer_name: property.buyer_name || '',
             has_lawn: property.has_lawn || false,
             has_parking: property.has_parking || false,
             has_security: property.has_security || false,
@@ -167,6 +227,8 @@ const EditProperty = () => {
       ...prev,
       [name]: type === 'checkbox' ? checked : value
     }))
+    // Clear error on field change
+    clearFieldError(name)
   }
 
   const handleImageUpload = (e) => {
@@ -214,33 +276,64 @@ const EditProperty = () => {
     }
   }
 
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    setSaving(true)
-
+  //  Validation function
+  const validateForm = () => {
+    const errors = {};
+    
     if (!formData.title.trim()) {
-      toast.error('Property title is required')
-      setSaving(false)
-      return
+      errors.title = 'Property title is required';
     }
-
+    
     if (!formData.location) {
-      toast.error('Please select a location')
-      setSaving(false)
-      return
+      errors.location = 'Please select a location';
     }
-
+    
     if (!formData.price || formData.price <= 0) {
-      toast.error('Valid price is required')
-      setSaving(false)
-      return
+      errors.price = 'Valid price is required';
     }
+    
+    if (!formData.area_marla || formData.area_marla <= 0) {
+      errors.area_marla = 'Valid area in Marla is required';
+    }
+    
+    if (!formData.property_type) {
+      errors.property_type = 'Please select property type';
+    }
+    
+    if (!formData.description || !formData.description.trim()) {
+      errors.description = 'Description is required';
+    }
+    
+    if (formData.expected_revenue && parseFloat(formData.expected_revenue) > parseFloat(formData.price)) {
+      errors.expected_revenue = 'Expected revenue cannot be greater than property price';
+    }
+    
+    if (formData.property_status === 'sold' && !formData.buyer_name?.trim()) {
+      errors.buyer_name = 'Buyer name is required when marking property as sold';
+    }
+    
+    if (formData.property_type === 'rent' && (!formData.rent_price || formData.rent_price <= 0)) {
+      errors.rent_price = 'Rent price is required for rental properties';
+    }
+    
+    setFieldErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
 
-    if (formData.property_status === 'rent' && (!formData.rent_price || formData.rent_price <= 0)) {
-      toast.error('Rent price is required for rental properties')
-      setSaving(false)
-      return
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    
+    // Clear previous server errors
+    setServerErrors({});
+    
+    // Validate before submitting
+    if (!validateForm()) {
+      const firstError = Object.values(fieldErrors)[0];
+      if (firstError) toast.error(firstError);
+      return;
     }
+    
+    setSaving(true);
 
     try {
       const token = getAuthToken()
@@ -254,9 +347,10 @@ const EditProperty = () => {
       
       fd.append('title', formData.title.trim())
       fd.append('location', formData.location)
-      fd.append('description', formData.description || '')
+      fd.append('description', formData.description || ' ')
       fd.append('area_marla', formData.area_marla || '0')
       fd.append('price', formData.price || '0')
+      fd.append('property_type', formData.property_type)
       fd.append('property_status', formData.property_status)
       fd.append('bedrooms', formData.bedrooms || '1')
       fd.append('bathrooms', formData.bathrooms || '1')
@@ -264,6 +358,13 @@ const EditProperty = () => {
       fd.append('number_of_floors', formData.number_of_floors || '1')
       fd.append('servant_rooms', formData.servant_rooms || '0')
       fd.append('store_rooms', formData.store_rooms || '0')
+      
+      if (formData.expected_revenue) {
+        fd.append('expected_revenue', formData.expected_revenue.toString())
+      }
+      if (formData.buyer_name) {
+        fd.append('buyer_name', formData.buyer_name.trim())
+      }
       
       if (formData.rent_price) fd.append('rent_price', formData.rent_price)
       if (formData.construction_year) fd.append('construction_year', formData.construction_year)
@@ -291,6 +392,9 @@ const EditProperty = () => {
         setTimeout(() => navigate('/properties'), 1500)
       } else {
         toast.error(response.data.message || 'Failed to update property')
+        if (response.data.errors) {
+          displayBackendErrors(response.data.errors);
+        }
       }
     } catch (error) {
       console.error('Error updating property:', error)
@@ -299,11 +403,9 @@ const EditProperty = () => {
         localStorage.clear()
         navigate('/sign_in')
       } else if (error.response?.data?.errors) {
-        const errors = error.response.data.errors
-        const firstErrorKey = Object.keys(errors)[0]
-        const firstError = errors[firstErrorKey]
-        const errorMsg = Array.isArray(firstError) ? firstError[0] : firstError
-        toast.error(errorMsg || 'Validation failed')
+        displayBackendErrors(error.response.data.errors);
+      } else if (error.response?.data?.message) {
+        toast.error(error.response.data.message);
       } else {
         toast.error('Failed to update property')
       }
@@ -341,6 +443,32 @@ const EditProperty = () => {
     }
   }
 
+  // Image Preview Modal Component
+  const ImagePreviewModal = ({ isOpen, imageUrl, onClose }) => {
+    if (!isOpen) return null;
+    
+    return (
+      <div className="fixed inset-0 bg-black/95 z-50 flex items-center justify-center p-4" onClick={onClose}>
+        <div className="relative w-full h-full flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
+          <button
+            onClick={onClose}
+            className="absolute top-4 right-4 text-white hover:text-gray-300 transition-colors z-10 bg-black/50 rounded-full p-2"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+          <div className="flex items-center justify-center w-full h-full">
+            <img src={imageUrl} alt="Preview" className="max-w-full max-h-full object-contain" />
+          </div>
+          <div className="absolute bottom-4 left-0 right-0 text-center">
+            <p className="text-white/70 text-sm">Click outside or press ESC to close</p>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50">
@@ -369,9 +497,19 @@ const EditProperty = () => {
           onLogout={handleLogout}
         />
         
-        <div className="p-4 lg:p-8">
+        <div className="p-2 lg:p-5">
+
+          <div className="flex justify-between items-center mb-3">
+            <Link
+              to="/properties"
+              className="inline-flex items-center gap-2 text-emerald-600 hover:text-emerald-700 transition-colors"
+            >
+              <ArrowLeft className="w-5 h-5" />
+              Back to Properties
+            </Link>
+          </div>
           
-          <div className="mb-6">
+          <div className="mb-4">
             <h1 className="text-2xl font-bold text-gray-900">Edit a Listing</h1>
             <p className="text-gray-500 mt-1">Update your property listing details</p>
           </div>
@@ -380,31 +518,62 @@ const EditProperty = () => {
 
             {/* Existing Images */}
             {existingImages.length > 0 && (
-              <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
-                <h2 className="text-lg font-semibold text-gray-800 mb-4">Current Images</h2>
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+              <div className="bg-white rounded-xl border border-emerald-500 pl-6 pr-6 pt-3 pb-6 shadow-sm">
+                <h2 className="text-xl font-semibold text-gray-800">Current Images</h2>
+                <p className="text-sm text-gray-500 mb-3">Click on any image to view full size</p>
+                <div className="flex flex-wrap gap-4">
                   {existingImages.map((img) => (
-                    <div key={img.image_id} className="relative group">
-                      <img src={img.image_url} alt="Property" className="w-full h-24 object-cover rounded-lg border" />
+                    <div key={img.image_id} className="relative group" style={{ width: '150px' }}>
+                      <div 
+                        className="bg-gray-100 rounded-lg border border-gray-200 cursor-pointer overflow-hidden"
+                        onClick={() => openImagePreview(img.image_url)}
+                      >
+                        <img src={img.image_url} alt="Property" className="w-full h-auto object-contain" style={{ maxHeight: '150px' }} />
+                        <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all rounded-lg">
+                          <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v6m-3-3h6" />
+                          </svg>
+                        </div>
+                      </div>
                       <button
                         type="button"
-                        onClick={() => deleteExistingImage(img.image_id)}
-                        className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition text-xs hover:bg-red-600"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteExistingImage(img.image_id);
+                        }}
+                        className="absolute -top-2 -right-2 bg-red-500 text-white w-6 h-6 rounded-full opacity-0 group-hover:opacity-100 transition hover:bg-red-600 z-10 flex items-center justify-center shadow-md"
                       >
-                        ✕
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
                       </button>
+                      {img.image_id === existingImages[0]?.image_id && (
+                        <div className="absolute bottom-0 left-0 bg-gradient-to-r from-emerald-600 to-teal-600 text-white text-xs px-2 py-1 rounded-tr-md rounded-bl-md">
+                          📌 Cover
+                        </div>
+                      )}
+                      <div className="absolute bottom-1 right-1 bg-black/60 text-white text-xs px-1.5 py-0.5 rounded-full z-10">
+                        {existingImages.indexOf(img) + 1}/{existingImages.length}
+                      </div>
                     </div>
                   ))}
                 </div>
               </div>
             )}
 
-            {/* Image Upload Section */}
-            <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
-              <h2 className="text-lg font-semibold text-gray-800 mb-4">Add New Images</h2>
+            {/* Add New Images Section */}
+            <div className="bg-white rounded-xl border border-emerald-500 pl-6 pr-6 pt-3 pb-6 shadow-sm">
+              <h2 className="text-xl font-semibold text-gray-800">Add New Images</h2>
               <p className="text-sm text-gray-500 mb-3">The first image will be the cover (max 6 total)</p>
               
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-emerald-500 transition">
+              <div 
+                className={`border-2 border-dashed rounded-lg p-8 text-center transition-all cursor-pointer ${
+                  images.length + existingImages.length >= 6 
+                    ? 'border-gray-200 bg-gray-50 cursor-not-allowed opacity-60' 
+                    : 'border-gray-300 hover:border-emerald-500 hover:bg-emerald-50/30'
+                }`}
+                onClick={() => images.length + existingImages.length < 6 && document.getElementById('image-upload').click()}
+              >
                 <input
                   type="file"
                   accept="image/*"
@@ -412,55 +581,99 @@ const EditProperty = () => {
                   onChange={handleImageUpload}
                   className="hidden"
                   id="image-upload"
+                  disabled={images.length + existingImages.length >= 6}
                 />
-                <label
-                  htmlFor="image-upload"
-                  className="cursor-pointer inline-flex items-center px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition"
-                >
-                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                <div className="flex flex-col items-center justify-center">
+                  <svg className={`w-12 h-12 mb-3 ${images.length + existingImages.length >= 6 ? 'text-gray-400' : 'text-emerald-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                   </svg>
-                  Choose Files
-                </label>
-                <p className="text-xs text-gray-500 mt-2">
-                  {images.length > 0 ? `${images.length} file(s) selected` : 'JPG, PNG or WebP (max 5MB each)'}
-                </p>
+                  <p className="text-sm font-medium text-gray-700">
+                    {images.length + existingImages.length >= 6 ? 'Maximum 6 images reached' : 'Click to upload images'}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {images.length > 0 ? `${images.length} new file(s) selected` : 'JPG, PNG or WebP (max 5MB each)'}
+                  </p>
+                </div>
               </div>
 
+              {/* New Image Preview Grid */}
               {imagePreview.length > 0 && (
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 mt-4">
-                  {imagePreview.map((preview, index) => (
-                    <div key={index} className="relative group">
-                      <img src={preview} alt={`Preview ${index + 1}`} className="w-full h-24 object-cover rounded-lg border border-gray-200" />
-                      <button
-                        type="button"
-                        onClick={() => removeImage(index)}
-                        className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition text-xs hover:bg-red-600"
-                      >
-                        ✕
-                      </button>
-                      {index === 0 && (
-                        <span className="absolute bottom-1 left-1 bg-emerald-600 text-white text-xs px-2 py-0.5 rounded">Cover</span>
-                      )}
-                    </div>
-                  ))}
+                <div className="mt-6">
+                  <div className="flex flex-wrap gap-4">
+                    {imagePreview.map((preview, index) => (
+                      <div key={index} className="relative group" style={{ width: '150px' }}>
+                        <div 
+                          className="bg-gray-100 rounded-lg border border-gray-200 cursor-pointer overflow-hidden"
+                          onClick={() => openImagePreview(preview)}
+                        >
+                          <img src={preview} alt={`Preview ${index + 1}`} className="w-full h-auto object-contain" style={{ maxHeight: '150px' }} />
+                          <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all rounded-lg">
+                            <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v6m-3-3h6" />
+                            </svg>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeImage(index);
+                          }}
+                          className="absolute -top-2 -right-2 bg-red-500 text-white w-6 h-6 rounded-full opacity-0 group-hover:opacity-100 transition hover:bg-red-600 z-10 flex items-center justify-center shadow-md"
+                        >
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                        {images.length > 0 && index === 0 && existingImages.length === 0 && (
+                          <div className="absolute bottom-0 left-0 bg-gradient-to-r from-emerald-600 to-teal-600 text-white text-xs px-2 py-1 rounded-tr-md rounded-bl-md">
+                            📌 Cover
+                          </div>
+                        )}
+                        <div className="absolute bottom-1 right-1 bg-black/60 text-white text-xs px-1.5 py-0.5 rounded-full z-10">
+                          {index + 1}/{imagePreview.length}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
 
             {/* Property Details Section */}
-            <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
+            <div className="bg-white rounded-xl border border-emerald-600 p-6 shadow-sm">
               <h2 className="text-lg font-semibold text-gray-800 mb-4">Property Details</h2>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Property Title *</label>
-                  <input type="text" name="title" value={formData.title} onChange={handleChange} placeholder="e.g., 5 Marla House in DHA" className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm" required />
+                  <input 
+                    type="text" 
+                    name="title" 
+                    value={formData.title} 
+                    onChange={handleChange} 
+                    placeholder="e.g., 5 Marla House in DHA" 
+                    className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm ${
+                      (fieldErrors.title || serverErrors.title) ? 'border-red-500 bg-red-50' : 'border-gray-200'
+                    }`}
+                    required 
+                  />
+                  {(fieldErrors.title || serverErrors.title) && (
+                    <p className="text-red-500 text-xs mt-1">{fieldErrors.title || serverErrors.title}</p>
+                  )}
                 </div>
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Location *</label>
-                  <select name="location" value={formData.location} onChange={handleChange} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm" required>
+                  <select 
+                    name="location" 
+                    value={formData.location} 
+                    onChange={handleChange} 
+                    className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm ${
+                      (fieldErrors.location || serverErrors.location) ? 'border-red-500 bg-red-50' : 'border-gray-200'
+                    }`}
+                    required
+                  >
                     <option value="">Select Location</option>
                     {locationsLoading ? (
                       <option disabled>Loading locations...</option>
@@ -470,31 +683,137 @@ const EditProperty = () => {
                       ))
                     )}
                   </select>
+                  {(fieldErrors.location || serverErrors.location) && (
+                    <p className="text-red-500 text-xs mt-1">{fieldErrors.location || serverErrors.location}</p>
+                  )}
                 </div>
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Area (Marla) *</label>
-                  <input type="number" step="0.5" name="area_marla" value={formData.area_marla} onChange={handleChange} placeholder="e.g., 5" min="0.5" className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm" required />
+                  <input 
+                    type="number" 
+                    step="0.5" 
+                    name="area_marla" 
+                    value={formData.area_marla} 
+                    onChange={handleChange} 
+                    placeholder="e.g., 5" 
+                    min="0.5" 
+                    className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm ${
+                      (fieldErrors.area_marla || serverErrors.area_marla) ? 'border-red-500 bg-red-50' : 'border-gray-200'
+                    }`}
+                    required 
+                  />
+                  {(fieldErrors.area_marla || serverErrors.area_marla) && (
+                    <p className="text-red-500 text-xs mt-1">{fieldErrors.area_marla || serverErrors.area_marla}</p>
+                  )}
                 </div>
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Price (PKR) *</label>
-                  <input type="number" name="price" value={formData.price} onChange={handleChange} placeholder="e.g., 25000000" min="0" className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm" required />
+                  <input 
+                    type="number" 
+                    name="price" 
+                    value={formData.price} 
+                    onChange={handleChange} 
+                    placeholder="e.g., 25000000" 
+                    min="0" 
+                    className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm ${
+                      (fieldErrors.price || serverErrors.price) ? 'border-red-500 bg-red-50' : 'border-gray-200'
+                    }`}
+                    required 
+                  />
+                  {(fieldErrors.price || serverErrors.price) && (
+                    <p className="text-red-500 text-xs mt-1">{fieldErrors.price || serverErrors.price}</p>
+                  )}
                 </div>
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Property Status</label>
-                  <select name="property_status" value={formData.property_status} onChange={handleChange} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm">
+                  <select
+                    name="property_status"
+                    value={formData.property_status}
+                    onChange={handleChange}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm"
+                  >
                     <option value="available">Available</option>
-                    <option value="rent">For Rent</option>
                     <option value="sold">Sold</option>
                   </select>
                 </div>
+
+                {/* Expected Revenue Field */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Expected Revenue / Profit
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    name="expected_revenue"
+                    value={formData.expected_revenue}
+                    onChange={handleChange}
+                    placeholder="Enter expected profit from this deal"
+                    min="0"
+                    className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm ${
+                      (fieldErrors.expected_revenue || serverErrors.expected_revenue) ? 'border-red-500 bg-red-50' : 
+                      (!isRevenueValid() && formData.expected_revenue ? 'border-red-500 bg-red-50' : 'border-gray-200')
+                    }`}
+                  />
+                  {(fieldErrors.expected_revenue || serverErrors.expected_revenue) && (
+                    <p className="text-red-500 text-xs mt-1">{fieldErrors.expected_revenue || serverErrors.expected_revenue}</p>
+                  )}
+                  {!isRevenueValid() && !fieldErrors.expected_revenue && !serverErrors.expected_revenue && formData.expected_revenue && (
+                    <p className="text-red-500 text-xs mt-1">
+                      ⚠️ Revenue cannot exceed property price ({parseFloat(formData.price).toLocaleString()} PKR)
+                    </p>
+                  )}
+                  <p className="text-gray-400 text-xs mt-1">
+                    Only sold properties will contribute to total revenue statistics
+                  </p>
+                </div>
+
+                {/* Buyer Name Field (conditional) */}
+                {isBuyerNameRequired && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Buyer Name <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      name="buyer_name"
+                      value={formData.buyer_name}
+                      onChange={handleChange}
+                      placeholder="Enter buyer's full name"
+                      className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm ${
+                        (fieldErrors.buyer_name || serverErrors.buyer_name) ? 'border-red-500 bg-red-50' : 'border-gray-200'
+                      }`}
+                      required={isBuyerNameRequired}
+                    />
+                    {(fieldErrors.buyer_name || serverErrors.buyer_name) && (
+                      <p className="text-red-500 text-xs mt-1">{fieldErrors.buyer_name || serverErrors.buyer_name}</p>
+                    )}
+                    <p className="text-gray-400 text-xs mt-1">
+                      Required when property is marked as sold
+                    </p>
+                  </div>
+                )}
                 
                 {formData.property_status === 'rent' && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Rent Price (PKR/Month) *</label>
-                    <input type="number" name="rent_price" value={formData.rent_price} onChange={handleChange} placeholder="e.g., 80000" min="0" className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm" required />
+                    <input 
+                      type="number" 
+                      name="rent_price" 
+                      value={formData.rent_price} 
+                      onChange={handleChange} 
+                      placeholder="e.g., 80000" 
+                      min="0" 
+                      className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm ${
+                        (fieldErrors.rent_price || serverErrors.rent_price) ? 'border-red-500 bg-red-50' : 'border-gray-200'
+                      }`}
+                    />
+                    {(fieldErrors.rent_price || serverErrors.rent_price) && (
+                      <p className="text-red-500 text-xs mt-1">{fieldErrors.rent_price || serverErrors.rent_price}</p>
+                    )}
                   </div>
                 )}
                 
@@ -537,11 +856,51 @@ const EditProperty = () => {
                   <label className="block text-sm font-medium text-gray-700 mb-1">Per Marla Rate (PKR)</label>
                   <input type="number" name="current_per_marla_rate" value={formData.current_per_marla_rate} onChange={handleChange} placeholder="e.g., 2800000" min="0" className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm" />
                 </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Property Type *</label>
+                  <select
+                    name="property_type"
+                    value={formData.property_type}
+                    onChange={handleChange}
+                    className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm ${
+                      (fieldErrors.property_type || serverErrors.property_type) ? 'border-red-500 bg-red-50' : 'border-gray-200'
+                    }`}
+                    required
+                  >
+                    <option value="">Select Type</option>
+                    <option value="house">House</option>
+                    <option value="plot">Plot</option>
+                  </select>
+                  {(fieldErrors.property_type || serverErrors.property_type) && (
+                    <p className="text-red-500 text-xs mt-1">{fieldErrors.property_type || serverErrors.property_type}</p>
+                  )}
+                </div>
+
+                {/* Description Field */}
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Description <span className="text-red-500">*</span>
+                  </label>
+                  <textarea 
+                    name="description" 
+                    value={formData.description} 
+                    onChange={handleChange} 
+                    placeholder="Describe the property in detail..." 
+                    rows="4" 
+                    className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm ${
+                      (fieldErrors.description || serverErrors.description) ? 'border-red-500 bg-red-50' : 'border-gray-200'
+                    }`}
+                  />
+                  {(fieldErrors.description || serverErrors.description) && (
+                    <p className="text-red-500 text-xs mt-1">{fieldErrors.description || serverErrors.description}</p>
+                  )}
+                </div>
               </div>
             </div>
 
             {/* Amenities Section */}
-            <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
+            <div className="bg-white rounded-xl border border-emerald-600 p-6 shadow-sm">
               <h2 className="text-lg font-semibold text-gray-800 mb-4">Amenities</h2>
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                 {[
@@ -566,7 +925,7 @@ const EditProperty = () => {
             </div>
 
             {/* Special Features Section */}
-            <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
+            <div className="bg-white rounded-xl border border-emerald-600 p-6 shadow-sm">
               <h2 className="text-lg font-semibold text-gray-800 mb-4">Special Features</h2>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                 <label className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 p-2 rounded-lg transition">
@@ -581,16 +940,12 @@ const EditProperty = () => {
             </div>
 
             {/* Custom Features & Description */}
-            <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
+            <div className="bg-white rounded-xl border border-emerald-600 p-6 shadow-sm">
               <h2 className="text-lg font-semibold text-gray-800 mb-4">Additional Information</h2>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Custom Features <span className="text-gray-400 font-normal ml-1">(optional)</span></label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Custom Features</label>
                   <textarea name="custom_features" value={formData.custom_features} onChange={handleChange} placeholder="Separate features with commas (e.g., Central AC, Smart Home, Solar Panels)" rows="2" className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Description <span className="text-gray-400 font-normal ml-1">(optional)</span></label>
-                  <textarea name="description" value={formData.description} onChange={handleChange} placeholder="Describe the property in detail..." rows="4" className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm" />
                 </div>
               </div>
             </div>
@@ -598,7 +953,11 @@ const EditProperty = () => {
             {/* Action Buttons */}
             <div className="flex items-center justify-end gap-4">
               <Link to="/properties" className="px-6 py-3 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition">Cancel</Link>
-              <button type="submit" disabled={saving} className={`inline-flex items-center px-6 py-3 bg-emerald-600 text-white font-medium rounded-lg transition ${saving ? 'opacity-50 cursor-not-allowed' : 'hover:bg-emerald-700'}`}>
+              <button 
+                type="submit" 
+                disabled={saving} 
+                className={`inline-flex items-center px-6 py-3 bg-emerald-600 text-white font-medium rounded-lg transition ${saving ? 'opacity-50 cursor-not-allowed' : 'hover:bg-emerald-700'}`}
+              >
                 {saving ? (
                   <>
                     <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -614,6 +973,11 @@ const EditProperty = () => {
             </div>
           </form>
         </div>
+        <ImagePreviewModal 
+          isOpen={isPreviewModalOpen} 
+          imageUrl={selectedImageForPreview} 
+          onClose={closeImagePreview} 
+        />
       </div>
     </div>
   )

@@ -1,13 +1,13 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import axios from "axios";
 import { toast, Toaster } from "sonner";
-import Navbar from '../components/AdminNavbar'
+import { adminAPI, setAdminAuth } from '../../services/authService';
 
 export default function SignUp() {
   const navigate = useNavigate();
 
   const [loading, setLoading] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState({});
 
   const [formData, setFormData] = useState({
     username: "",
@@ -18,15 +18,21 @@ export default function SignUp() {
   });
 
   const handleChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value,
-    });
+    const { name, value } = e.target;
+    setFormData((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
+    // Clear field error when user starts typing
+    if (fieldErrors[name]) {
+      setFieldErrors((prev) => ({ ...prev, [name]: "" }));
+    }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
+    setFieldErrors({});
 
     // Validation
     if (!formData.username.trim()) {
@@ -41,7 +47,6 @@ export default function SignUp() {
       return;
     }
 
-    // Email format validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(formData.email)) {
       toast.error("Please enter a valid email address");
@@ -68,16 +73,14 @@ export default function SignUp() {
     }
 
     try {
-      console.log("Sending signup request with data:", {
+      console.log("Sending signup request:", {
         username: formData.username,
         email: formData.email,
         phone: formData.phone,
-        password: "******",
-        confirm_password: "******"
       });
 
-      // ✅ CORRECTED API URL based on your Django configuration
-      const res = await axios.post("http://127.0.0.1:8000/api/admin/signup", {
+      // Use adminAPI instead of direct axios
+      const response = await adminAPI.adminSignup({
         username: formData.username.trim(),
         email: formData.email.trim().toLowerCase(),
         phone: formData.phone?.trim() || "",
@@ -85,102 +88,83 @@ export default function SignUp() {
         confirm_password: formData.confirm_password,
       });
 
-      console.log("Signup success response:", res.data);
+      console.log("Signup success:", response.data);
 
-      // Store tokens if returned
-      if (res.data?.data?.access_token) {
-        localStorage.setItem("adminAccessToken", res.data.data.access_token);
-        localStorage.setItem("adminRefreshToken", res.data.data.refresh_token);
-        if (res.data.data.admin) {
-          localStorage.setItem("adminData", JSON.stringify(res.data.data.admin));
-        }
+      if (response.data.success) {
+        const { access_token, refresh_token, admin } = response.data.data;
+        
+        //  Use the same auth function as SignIn
+        setAdminAuth(access_token, refresh_token, admin);
+        
+        toast.success(response.data.message || "Admin account created successfully!");
+
+        setTimeout(() => {
+          navigate("/dashboard");
+        }, 1500);
+      } else {
+        toast.error(response.data.message || "Registration failed");
       }
 
-      toast.success(res.data?.message || "Admin account created successfully!");
-
-      // Redirect to login page after successful signup
-      setTimeout(() => {
-        navigate("/sign_in");
-      }, 1500);
-
     } catch (error) {
-      // ✅ DETAILED ERROR LOGGING
-      console.log("Full error object:", error);
-      console.log("Error response:", error.response);
-      console.log("Error response data:", error.response?.data);
-      console.log("Error response status:", error.response?.status);
-      console.log("Error message:", error.message);
-      console.log("Error code:", error.code);
+      console.error("Signup error details:", error.response?.data);
       
-      // Handle different error scenarios
       if (error.response) {
-        // Server responded with an error status
         const responseData = error.response.data;
         const statusCode = error.response.status;
         
-        console.log("Server error response:", responseData);
-        
-        // Check for validation errors
-        if (responseData?.errors) {
+        // Handle validation errors from backend (format: { success: false, errors: {...} })
+        if (responseData?.errors && typeof responseData.errors === 'object') {
           const errors = responseData.errors;
-          console.log("Validation errors:", errors);
+          let errorShown = false;
           
-          // Handle field-specific errors
-          if (errors.username) {
-            const errorMsg = Array.isArray(errors.username) 
-              ? errors.username[0] 
-              : errors.username;
-            toast.error(errorMsg);
-          } else if (errors.email) {
-            const errorMsg = Array.isArray(errors.email) 
-              ? errors.email[0] 
-              : errors.email;
-            toast.error(errorMsg);
-          } else if (errors.password) {
-            const errorMsg = Array.isArray(errors.password) 
-              ? errors.password[0] 
-              : errors.password;
-            toast.error(errorMsg);
-          } else if (errors.confirm_password) {
-            const errorMsg = Array.isArray(errors.confirm_password) 
-              ? errors.confirm_password[0] 
-              : errors.confirm_password;
-            toast.error(errorMsg);
-          } else if (errors.phone) {
-            const errorMsg = Array.isArray(errors.phone) 
-              ? errors.phone[0] 
-              : errors.phone;
-            toast.error(errorMsg);
-          } else if (errors.non_field_errors) {
-            const errorMsg = Array.isArray(errors.non_field_errors) 
-              ? errors.non_field_errors[0] 
-              : errors.non_field_errors;
-            toast.error(errorMsg);
-          } else {
-            // Get the first error message from any field
-            const firstErrorKey = Object.keys(errors)[0];
-            const firstError = errors[firstErrorKey];
-            const errorMsg = Array.isArray(firstError) ? firstError[0] : firstError;
-            toast.error(errorMsg || "Validation failed");
+          // Map backend field names to frontend field names
+          const fieldMapping = {
+            'username': 'username',
+            'email': 'email', 
+            'phone': 'phone',
+            'password': 'password',
+            'confirm_password': 'confirm_password'
+          };
+          
+          for (const [backendField, frontendField] of Object.entries(fieldMapping)) {
+            if (errors[backendField]) {
+              const errorMsg = Array.isArray(errors[backendField]) ? errors[backendField][0] : errors[backendField];
+              setFieldErrors(prev => ({ ...prev, [frontendField]: errorMsg }));
+              if (!errorShown) toast.error(errorMsg);
+              errorShown = true;
+            }
           }
-        } else if (responseData?.message) {
-          // General error message
+          
+          // Handle non_field_errors
+          if (errors.non_field_errors && !errorShown) {
+            const errorMsg = Array.isArray(errors.non_field_errors) ? errors.non_field_errors[0] : errors.non_field_errors;
+            toast.error(errorMsg);
+            errorShown = true;
+          }
+          
+          // If still no error shown, show the first error from any field
+          if (!errorShown && Object.keys(errors).length > 0) {
+            const firstKey = Object.keys(errors)[0];
+            const firstError = errors[firstKey];
+            const errorMsg = Array.isArray(firstError) ? firstError[0] : firstError;
+            toast.error(errorMsg);
+          }
+        } 
+        else if (responseData?.message) {
           toast.error(responseData.message);
-        } else if (typeof responseData === 'string') {
-          // String error response
-          toast.error(responseData);
-        } else {
-          // Unknown error format
-          toast.error(`Server error (${statusCode}). Please try again.`);
         }
-      } else if (error.request) {
-        // Request was made but no response received
-        console.log("No response received:", error.request);
+        else if (typeof responseData === 'string') {
+          toast.error(responseData);
+        }
+        else {
+          toast.error(`Registration failed (${statusCode}). Please try again.`);
+        }
+      } 
+      else if (error.request) {
         toast.error("Cannot connect to server. Please make sure the backend is running at http://127.0.0.1:8000");
-      } else {
-        // Something happened in setting up the request
-        console.log("Request setup error:", error.message);
-        toast.error("Failed to send request. Please try again.");
+      } 
+      else {
+        toast.error("Registration failed. Please try again.");
       }
     } finally {
       setLoading(false);
@@ -190,8 +174,7 @@ export default function SignUp() {
   return (
     <div className="flex flex-col items-center justify-start min-h-screen w-full font-poppins">
       <Toaster position="top-center" richColors />
-      <Navbar />
-
+      
       <div className="bg-white p-5 rounded-2xl shadow-xl w-110 text-center mt-10">
         <h2 className="text-2xl font-semibold text-emerald-600 mb-1">
           Create Admin Account
@@ -202,60 +185,99 @@ export default function SignUp() {
         </p>
 
         <form onSubmit={handleSubmit} className="text-left">
+          {/* Username Field */}
+          <div>
+            <input
+              type="text"
+              placeholder="Enter username"
+              name="username"
+              value={formData.username}
+              onChange={handleChange}
+              required
+              className={`w-full mt-3 mb-1 p-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 caret-emerald-500  ${
+                fieldErrors.username ? 'border-red-500 bg-red-50' : 'border-gray-300'
+              }`}
+            />
+            {fieldErrors.username && (
+              <p className="text-red-500 text-xs mt-0 mb-2 ml-2">{fieldErrors.username}</p>
+            )}
+          </div>
 
-          <input
-            type="text"
-            placeholder="Enter username"
-            name="username"
-            value={formData.username}
-            onChange={handleChange}
-            required
-            className="w-full mt-3 mb-3 p-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-          />
+          {/* Email Field */}
+          <div>
+            <input
+              type="email"
+              placeholder="Enter email"
+              name="email"
+              value={formData.email}
+              onChange={handleChange}
+              required
+              className={`w-full mt-3 mb-1 p-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 caret-emerald-500  ${
+                fieldErrors.email ? 'border-red-500 bg-red-50' : 'border-gray-300'
+              }`}
+            />
+            {fieldErrors.email && (
+              <p className="text-red-500 text-xs mt-0 mb-2 ml-2">{fieldErrors.email}</p>
+            )}
+          </div>
 
-          <input
-            type="email"
-            placeholder="Enter email"
-            name="email"
-            value={formData.email}
-            onChange={handleChange}
-            required
-            className="w-full mt-3 mb-3 p-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-          />
+          {/* Phone Field */}
+          <div>
+            <input
+              type="tel"
+              placeholder="Enter phone number (optional)"
+              name="phone"
+              value={formData.phone}
+              onChange={handleChange}
+              className={`w-full mt-3 mb-1 p-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 caret-emerald-500  ${
+                fieldErrors.phone ? 'border-red-500 bg-red-50' : 'border-gray-300'
+              }`}
+            />
+            {fieldErrors.phone && (
+              <p className="text-red-500 text-xs mt-0 mb-2 ml-2">{fieldErrors.phone}</p>
+            )}
+          </div>
 
-          <input
-            type="tel"
-            placeholder="Enter phone number (optional)"
-            name="phone"
-            value={formData.phone}
-            onChange={handleChange}
-            className="w-full mt-3 mb-3 p-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-          />
+          {/* Password Field */}
+          <div>
+            <input
+              type="password"
+              placeholder="Enter password (min 6 characters)"
+              name="password"
+              value={formData.password}
+              onChange={handleChange}
+              required
+              className={`w-full mt-3 mb-1 p-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 caret-emerald-500  ${
+                fieldErrors.password ? 'border-red-500 bg-red-50' : 'border-gray-300'
+              }`}
+            />
+            {fieldErrors.password && (
+              <p className="text-red-500 text-xs mt-0 mb-2 ml-2">{fieldErrors.password}</p>
+            )}
+          </div>
 
-          <input
-            type="password"
-            placeholder="Enter password (min 6 characters)"
-            name="password"
-            value={formData.password}
-            onChange={handleChange}
-            required
-            className="w-full mt-3 mb-3 p-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-          />
-
-          <input
-            type="password"
-            placeholder="Confirm password"
-            name="confirm_password"
-            value={formData.confirm_password}
-            onChange={handleChange}
-            required
-            className="w-full mt-3 mb-9 p-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-          />
+          {/* Confirm Password Field */}
+          <div>
+            <input
+              type="password"
+              placeholder="Confirm password"
+              name="confirm_password"
+              value={formData.confirm_password}
+              onChange={handleChange}
+              required
+              className={`w-full mt-3 mb-1 p-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 caret-emerald-500  ${
+                fieldErrors.confirm_password ? 'border-red-500 bg-red-50' : 'border-gray-300'
+              }`}
+            />
+            {fieldErrors.confirm_password && (
+              <p className="text-red-500 text-xs mt-0 mb-2 ml-2">{fieldErrors.confirm_password}</p>
+            )}
+          </div>
 
           <button
             type="submit"
             disabled={loading}
-            className={`w-full bg-emerald-600 text-white py-3 rounded-xl hover:bg-emerald-700 transition-colors ${
+            className={`w-full bg-emerald-600 text-white py-3 rounded-xl hover:bg-emerald-700 transition-colors mt-3 ${
               loading ? 'opacity-50 cursor-not-allowed' : ''
             }`}
           >

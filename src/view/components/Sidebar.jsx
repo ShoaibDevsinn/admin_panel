@@ -1,17 +1,26 @@
 import React from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { Home as HomeIcon, LayoutDashboard, List, Plus, TrendingUp, Users, LogOut } from 'lucide-react';
+
 
 const Sidebar = ({ isOpen, onClose }) => {
   const location = useLocation()
   const navigate = useNavigate()
   
   const menuItems = [
-    { name: 'Dashboard', icon: '🏠', path: '/' },
-    { name: 'Manage Lists', icon: '📋', path: '/properties' },
-    { name: 'Add Property', icon: '➕', path: '/add-property' },
-    { name: 'Market Trends', icon: '📈', path: '/property-prices' },
-    { name: 'User Management', icon: '👥', path: '/user-management' },
+    { name: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
+    { name: 'Manage Lists', icon: List, path: '/properties' },
+    { name: 'Add Property', icon: Plus, path: '/add-property' },
+    { name: 'Market Trends', icon: TrendingUp, path: '/property-prices' },
+    { name: 'User Management', icon: Users, path: '/user-management' },
   ]
+
+    const isActive = (path) => {
+    if (path === '/dashboard') {
+      return location.pathname === '/dashboard'
+    }
+    return location.pathname === path
+  }
 
   const handleLogout = async () => {
     try {
@@ -38,20 +47,21 @@ const Sidebar = ({ isOpen, onClose }) => {
     <>
       {/* Sidebar */}
       <div className={`
-        fixed top-0 left-0 h-full w-64 bg-white shadow-lg z-50
+        fixed top-0 left-0 h-full w-64 bg-gray-50 shadow-lg z-50
         transition-all duration-300 ease-in-out
         ${isOpen ? 'translate-x-0' : '-translate-x-full'}
         lg:translate-x-0
         overflow-y-auto
       `}>
-        <div className="p-5">
+        <div className="pl-5 pr-5">
           {/* Logo */}
-          <div className="flex items-center gap-3 pb-5 mb-5 border-b border-gray-100">
-            <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center">
-              <span className="text-white text-xl">🏘️</span>
+          <div className="flex items-center gap-3 mt-2 mb-5 border-b border-emerald-500 pb-3">
+              <div className="inline-block ">
+        <HomeIcon className="w-11 h-11 text-emerald-500 mx-auto" />
+      {/* </div> */}
             </div>
             <div>
-              <h2 className="font-bold text-gray-800">Lahore House</h2>
+              <h2 className="font-bold text-gray-800 text-lg" >Lahore Property</h2>
               <p className="text-xs text-gray-500">Admin Panel</p>
             </div>
           </div>
@@ -68,24 +78,27 @@ const Sidebar = ({ isOpen, onClose }) => {
           
           {/* Menu Items */}
           <nav className="space-y-1 mt-8 lg:mt-0">
-            {menuItems.map((item, index) => (
+            {menuItems.map((item, index) => {
+              const Icon = item.icon
+              const active = isActive(item.path)
+              return (
               <Link
-                key={index}
-                to={item.path}
-                onClick={onClose}
-                className={`
-                  flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer
-                  transition-all duration-200
-                  ${location.pathname === item.path 
-                    ? 'bg-blue-50 text-blue-600' 
-                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-800'
+                  key={index}
+                  to={item.path}
+                  onClick={onClose}
+                  className={`
+                    flex items-center gap-3 px-3 py-2.5 rounded-lg 
+                    ${active 
+                    ? 'bg-emerald-500 text-white' 
+                    : 'text-gray-600 hover:bg-emerald-50 hover:text-emerald-600'
                   }
                 `}
               >
-                <span className="text-lg">{item.icon}</span>
-                <span className="text-sm font-medium">{item.name}</span>
+                 <Icon className="w-5 h-5" />
+                  <span className="text-sl font-medium">{item.name}</span>
               </Link>
-            ))}
+            )
+            })}
           </nav>
 
           {/* Logout Button */}
@@ -94,8 +107,8 @@ const Sidebar = ({ isOpen, onClose }) => {
               onClick={handleLogout}
               className="flex items-center gap-3 text-gray-500 hover:text-red-600 w-full px-3 py-2.5 rounded-lg transition-all duration-200 hover:bg-red-50"
             >
-              <span className="text-lg">🚪</span>
-              <span className="text-sm font-medium">Logout</span>
+              <LogOut className="w-5 h-5" />
+              <span className="text-sl font-medium">Logout</span>
             </button>
           </div>
         </div>

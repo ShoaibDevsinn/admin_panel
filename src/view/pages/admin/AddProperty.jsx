@@ -11,6 +11,11 @@ const AddProperty = () => {
   const [loading, setLoading] = useState(false)
   const [locations, setLocations] = useState([])
   const [locationsLoading, setLocationsLoading] = useState(true)
+  const [selectedImageForPreview, setSelectedImageForPreview] = useState(null);
+  const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
+  
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [serverErrors, setServerErrors] = useState({}); 
   
   const [formData, setFormData] = useState({
     title: '',
@@ -20,13 +25,17 @@ const AddProperty = () => {
     bedrooms: '',
     bathrooms: '',
     kitchens: '',
-    property_status: 'available',
+    property_type: '',  
+    property_status: 'available', 
     rent_price: '',
     construction_year: '',
     number_of_floors: '',
     servant_rooms: '',
     store_rooms: '',
     current_per_marla_rate: '',
+    
+    expected_revenue: '',
+    buyer_name: '',
     
     has_lawn: false,
     has_parking: false,
@@ -44,7 +53,7 @@ const AddProperty = () => {
     is_facing_park: false,
     
     custom_features: '',
-    description: ''
+    description: '',
   })
 
   const [images, setImages] = useState([])
@@ -91,10 +100,18 @@ const AddProperty = () => {
       ...prev,
       [name]: type === 'checkbox' ? checked : value
     }))
+    // Clear field error when user starts typing
+    if (fieldErrors[name]) {
+      setFieldErrors(prev => ({ ...prev, [name]: "" }));
+    }
+    if (serverErrors[name]) {
+      setServerErrors(prev => ({ ...prev, [name]: "" }));
+    }
   }
 
   const handleImageUpload = (e) => {
     const files = Array.from(e.target.files)
+    
     if (files.length + images.length > 6) {
       toast.error('Maximum 6 images allowed')
       return
@@ -122,50 +139,97 @@ const AddProperty = () => {
   const removeImage = (index) => {
     const newImages = images.filter((_, i) => i !== index)
     const newPreviews = imagePreview.filter((_, i) => i !== index)
+    
     URL.revokeObjectURL(imagePreview[index])
+    
     setImages(newImages)
     setImagePreview(newPreviews)
   }
 
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    setLoading(true)
+  const isRevenueValid = () => {
+    if (!formData.expected_revenue || !formData.price) return true;
+    return parseFloat(formData.expected_revenue) <= parseFloat(formData.price);
+  };
 
+  const isBuyerNameRequired = formData.property_status === 'sold';
+
+  const validateForm = () => {
+    const errors = {};
+    
     if (!formData.title.trim()) {
-      toast.error('Property title is required')
-      setLoading(false)
-      return
+      errors.title = 'Property title is required';
     }
-
+    
     if (!formData.location) {
-      toast.error('Please select a location')
-      setLoading(false)
-      return
+      errors.location = 'Please select a location';
     }
-
+    
     if (!formData.price || formData.price <= 0) {
-      toast.error('Valid price is required')
-      setLoading(false)
-      return
+      errors.price = 'Valid price is required';
     }
-
+    
     if (!formData.area_marla || formData.area_marla <= 0) {
-      toast.error('Valid area in Marla is required')
-      setLoading(false)
-      return
+      errors.area_marla = 'Valid area in Marla is required';
     }
-
+    
+    if (!formData.property_type) {
+      errors.property_type = 'Please select property type';
+    }
+    
     if (images.length === 0) {
-      toast.error('At least 1 image is required')
-      setLoading(false)
-      return
+      errors.images = 'At least 1 image is required';
     }
+    
+    if (formData.expected_revenue && parseFloat(formData.expected_revenue) > parseFloat(formData.price)) {
+      errors.expected_revenue = 'Expected revenue cannot be greater than property price';
+    }
+    
+    if (formData.property_status === 'sold' && !formData.buyer_name?.trim()) {
+      errors.buyer_name = 'Buyer name is required when marking property as sold';
+    }
+    
+    if (formData.property_type === 'rent' && (!formData.rent_price || formData.rent_price <= 0)) {
+      errors.rent_price = 'Rent price is required for rental properties';
+    }
+    
+    setFieldErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
 
-    if (formData.property_status === 'rent' && (!formData.rent_price || formData.rent_price <= 0)) {
-      toast.error('Rent price is required for rental properties')
-      setLoading(false)
-      return
+  const displayBackendErrors = (errors) => {
+    const newServerErrors = {};
+    let firstErrorMessage = '';
+    
+    // Iterate through all error fields
+    for (const [field, messages] of Object.entries(errors)) {
+      const errorMsg = Array.isArray(messages) ? messages[0] : messages;
+      newServerErrors[field] = errorMsg;
+      if (!firstErrorMessage) firstErrorMessage = errorMsg;
     }
+    
+    setServerErrors(newServerErrors);
+    setFieldErrors(prev => ({ ...prev, ...newServerErrors }));
+    
+    // Show first error as toast
+    if (firstErrorMessage) {
+      toast.error(firstErrorMessage);
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    
+    // Clear previous server errors
+    setServerErrors({});
+    
+    if (!validateForm()) {
+      const firstError = Object.values(fieldErrors)[0];
+      if (firstError) toast.error(firstError);
+      setLoading(false);
+      return;
+    }
+    
+    setLoading(true);
 
     try {
       const token = localStorage.getItem('admin_access_token')
@@ -184,7 +248,8 @@ const AddProperty = () => {
       fd.append('area_marla', formData.area_marla.toString())
       fd.append('price', formData.price.toString())
       fd.append('property_status', formData.property_status)
-      fd.append('description', formData.description.trim() || '')
+      fd.append('property_type', formData.property_type)
+      fd.append('description', formData.description.trim() || ' ')
       
       // Optional fields with defaults
       fd.append('bedrooms', (formData.bedrooms || '1').toString())
@@ -194,7 +259,13 @@ const AddProperty = () => {
       fd.append('servant_rooms', (formData.servant_rooms || '0').toString())
       fd.append('store_rooms', (formData.store_rooms || '0').toString())
       
-      // Conditional fields
+      if (formData.expected_revenue) {
+        fd.append('expected_revenue', formData.expected_revenue.toString())
+      }
+      if (formData.buyer_name) {
+        fd.append('buyer_name', formData.buyer_name.trim())
+      }
+      
       if (formData.rent_price) {
         fd.append('rent_price', formData.rent_price.toString())
       }
@@ -208,7 +279,6 @@ const AddProperty = () => {
         fd.append('custom_features', formData.custom_features.trim())
       }
       
-      // Boolean fields
       const booleanFields = [
         'has_lawn', 'has_parking', 'has_security', 'has_servant_quarter',
         'has_study_room', 'has_gym', 'has_swimming_pool', 'is_furnished',
@@ -220,7 +290,6 @@ const AddProperty = () => {
         fd.append(field, formData[field] ? 'true' : 'false')
       })
       
-      // Images
       images.forEach(image => {
         fd.append('images', image)
       })
@@ -238,7 +307,6 @@ const AddProperty = () => {
       if (response.data.success) {
         toast.success('Property added successfully!')
         
-        // Reset form
         setFormData({
           title: '',
           location: '',
@@ -247,6 +315,7 @@ const AddProperty = () => {
           bedrooms: '',
           bathrooms: '',
           kitchens: '',
+          property_type: '',
           property_status: 'available',
           rent_price: '',
           construction_year: '',
@@ -254,6 +323,8 @@ const AddProperty = () => {
           servant_rooms: '',
           store_rooms: '',
           current_per_marla_rate: '',
+          expected_revenue: '',
+          buyer_name: '',
           has_lawn: false,
           has_parking: false,
           has_security: false,
@@ -272,12 +343,17 @@ const AddProperty = () => {
         })
         setImages([])
         setImagePreview([])
+        setFieldErrors({})
+        setServerErrors({})
         
         setTimeout(() => {
           navigate('/listings')
         }, 1500)
       } else {
         toast.error(response.data.message || 'Failed to add property')
+        if (response.data.errors) {
+          displayBackendErrors(response.data.errors);
+        }
       }
     } catch (error) {
       console.error('Error adding property:', error)
@@ -292,11 +368,9 @@ const AddProperty = () => {
       } else if (error.response?.status === 403) {
         toast.error('Access denied. Admin privileges required.')
       } else if (error.response?.data?.errors) {
-        const errors = error.response.data.errors
-        const firstErrorKey = Object.keys(errors)[0]
-        const firstError = errors[firstErrorKey]
-        const errorMsg = Array.isArray(firstError) ? firstError[0] : firstError
-        toast.error(errorMsg || 'Validation failed')
+        displayBackendErrors(error.response.data.errors);
+      } else if (error.response?.data?.message) {
+        toast.error(error.response.data.message);
       } else if (error.code === 'ERR_NETWORK') {
         toast.error('Network error. Please check your connection.')
       } else {
@@ -343,6 +417,47 @@ const AddProperty = () => {
     }
   }
 
+  const openImagePreview = (imageUrl) => {
+    setSelectedImageForPreview(imageUrl);
+    setIsPreviewModalOpen(true);
+  };
+
+  const closeImagePreview = () => {
+    setSelectedImageForPreview(null);
+    setIsPreviewModalOpen(false);
+  };
+
+  const ImagePreviewModal = ({ isOpen, imageUrl, onClose }) => {
+    if (!isOpen) return null;
+    
+    return (
+      <div className="fixed inset-0 bg-black/95 z-50 flex items-center justify-center p-4" onClick={onClose}>
+        <div className="relative w-full h-full flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
+          <button
+            onClick={onClose}
+            className="absolute top-4 right-4 text-white hover:text-gray-300 transition-colors z-10 bg-black/50 rounded-full p-2"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+          
+          <div className="flex items-center justify-center w-full h-full">
+            <img 
+              src={imageUrl} 
+              alt="Preview" 
+              className="max-w-full max-h-full object-contain"
+            />
+          </div>
+          
+          <div className="absolute bottom-4 left-0 right-0 text-center">
+            <p className="text-white/70 text-sm">Click outside or press ESC to close</p>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
@@ -363,11 +478,18 @@ const AddProperty = () => {
           <form onSubmit={handleSubmit} className="space-y-6">
             
             {/* Image Upload Section */}
-            <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
-              <h2 className="text-lg font-semibold text-gray-800 mb-4">Property Images</h2>
+            <div className="bg-white rounded-xl border border-emerald-500 pl-6 pr-6 pt-3 pb-6 shadow-sm">
+              <h2 className="text-xl font-semibold text-gray-800">Property Images</h2>
               <p className="text-sm text-gray-500 mb-3">The first image will be the cover (max 6)</p>
               
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-emerald-500 transition">
+              <div 
+                className={`border-2 border-dashed rounded-lg p-8 text-center transition-all cursor-pointer ${
+                  images.length >= 6 
+                    ? 'border-gray-200 bg-gray-50 cursor-not-allowed opacity-60' 
+                    : 'border-gray-300 hover:border-emerald-500 hover:bg-emerald-50/30'
+                }`}
+                onClick={() => images.length < 6 && document.getElementById('image-upload').click()}
+              >
                 <input
                   type="file"
                   accept="image/*"
@@ -375,50 +497,88 @@ const AddProperty = () => {
                   onChange={handleImageUpload}
                   className="hidden"
                   id="image-upload"
+                  disabled={images.length >= 6}
                 />
-                <label
-                  htmlFor="image-upload"
-                  className="cursor-pointer inline-flex items-center px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition"
-                >
-                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                <div className="flex flex-col items-center justify-center">
+                  <svg 
+                    className={`w-12 h-12 mb-3 ${images.length >= 6 ? 'text-gray-400' : 'text-emerald-500'}`} 
+                    fill="none" 
+                    stroke="currentColor" 
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                   </svg>
-                  Choose Files
-                </label>
-                <p className="text-xs text-gray-500 mt-2">
-                  {images.length > 0 ? `${images.length} file(s) selected` : 'JPG, PNG or WebP (max 5MB each)'}
-                </p>
+                  <p className="text-sm font-medium text-gray-700">
+                    {images.length >= 6 ? 'Maximum 6 images reached' : 'Click to upload images'}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {images.length > 0 ? `${images.length} / 6 files selected` : 'JPG, PNG or WebP (max 5MB each)'}
+                  </p>
+                </div>
               </div>
+              {fieldErrors.images && (
+                <p className="text-red-500 text-xs mt-2">{fieldErrors.images}</p>
+              )}
 
               {imagePreview.length > 0 && (
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 mt-4">
-                  {imagePreview.map((preview, index) => (
-                    <div key={index} className="relative group">
-                      <img 
-                        src={preview} 
-                        alt={`Preview ${index + 1}`} 
-                        className="w-full h-24 object-cover rounded-lg border border-gray-200" 
-                      />
-                      <button
-                        type="button"
-                        onClick={() => removeImage(index)}
-                        className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition text-xs hover:bg-red-600"
-                      >
-                        ✕
-                      </button>
-                      {index === 0 && (
-                        <span className="absolute bottom-1 left-1 bg-emerald-600 text-white text-xs px-2 py-0.5 rounded">
-                          Cover
-                        </span>
-                      )}
-                    </div>
-                  ))}
+                <div className="mt-6">
+                  <div className="flex flex-wrap gap-4">
+                    {imagePreview.map((preview, index) => (
+                      <div key={index} className="relative group" style={{ width: '150px' }}>
+                        <div 
+                          className="bg-gray-100 rounded-lg border border-gray-200 cursor-pointer overflow-hidden"
+                          onClick={() => openImagePreview(preview)}
+                        >
+                          <img 
+                            src={preview} 
+                            alt={`Preview ${index + 1}`} 
+                            className="w-full h-auto object-contain"
+                            style={{ maxHeight: '150px' }}
+                          />
+                          <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all rounded-lg">
+                            <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v6m-3-3h6" />
+                            </svg>
+                          </div>
+                        </div>
+                        
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeImage(index);
+                          }}
+                          className="absolute -top-2 -right-2 bg-red-500 text-white w-6 h-6 rounded-full opacity-0 group-hover:opacity-100 transition hover:bg-red-600 z-10 flex items-center justify-center shadow-md"
+                        >
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                        
+                        {index === 0 && (
+                          <div className="absolute bottom-0 left-0 bg-gradient-to-r from-emerald-600 to-teal-600 text-white text-xs px-2 py-1 rounded-tr-md rounded-bl-md">
+                            📌 Cover
+                          </div>
+                        )}
+                        
+                        <div className="absolute bottom-1 right-1 bg-black/60 text-white text-xs px-1.5 py-0.5 rounded-full z-10">
+                          {index + 1}/{imagePreview.length}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
 
+            <ImagePreviewModal 
+              isOpen={isPreviewModalOpen} 
+              imageUrl={selectedImageForPreview} 
+              onClose={closeImagePreview} 
+            />
+
             {/* Property Details Section */}
-            <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
+            <div className="bg-white rounded-xl border border-emerald-600 pt-3 pb-6 pl-6 pr-6 shadow-sm">
               <h2 className="text-lg font-semibold text-gray-800 mb-4">Property Details</h2>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -430,9 +590,14 @@ const AddProperty = () => {
                     value={formData.title}
                     onChange={handleChange}
                     placeholder="e.g., 5 Marla House in DHA"
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm"
+                    className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm ${
+                      (fieldErrors.title || serverErrors.title) ? 'border-red-500 bg-red-50' : 'border-gray-200'
+                    }`}
                     required
                   />
+                  {(fieldErrors.title || serverErrors.title) && (
+                    <p className="text-red-500 text-xs mt-1">{fieldErrors.title || serverErrors.title}</p>
+                  )}
                 </div>
                 
                 <div>
@@ -441,7 +606,9 @@ const AddProperty = () => {
                     name="location"
                     value={formData.location}
                     onChange={handleChange}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm"
+                    className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm ${
+                      (fieldErrors.location || serverErrors.location) ? 'border-red-500 bg-red-50' : 'border-gray-200'
+                    }`}
                     required
                   >
                     <option value="">Select Location</option>
@@ -455,6 +622,9 @@ const AddProperty = () => {
                       ))
                     )}
                   </select>
+                  {(fieldErrors.location || serverErrors.location) && (
+                    <p className="text-red-500 text-xs mt-1">{fieldErrors.location || serverErrors.location}</p>
+                  )}
                 </div>
                 
                 <div>
@@ -467,9 +637,14 @@ const AddProperty = () => {
                     onChange={handleChange}
                     placeholder="e.g., 5"
                     min="0.5"
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm"
+                    className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm ${
+                      (fieldErrors.area_marla || serverErrors.area_marla) ? 'border-red-500 bg-red-50' : 'border-gray-200'
+                    }`}
                     required
                   />
+                  {(fieldErrors.area_marla || serverErrors.area_marla) && (
+                    <p className="text-red-500 text-xs mt-1">{fieldErrors.area_marla || serverErrors.area_marla}</p>
+                  )}
                 </div>
                 
                 <div>
@@ -481,9 +656,14 @@ const AddProperty = () => {
                     onChange={handleChange}
                     placeholder="e.g., 25000000"
                     min="0"
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm"
+                    className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm ${
+                      (fieldErrors.price || serverErrors.price) ? 'border-red-500 bg-red-50' : 'border-gray-200'
+                    }`}
                     required
                   />
+                  {(fieldErrors.price || serverErrors.price) && (
+                    <p className="text-red-500 text-xs mt-1">{fieldErrors.price || serverErrors.price}</p>
+                  )}
                 </div>
                 
                 <div>
@@ -495,24 +675,62 @@ const AddProperty = () => {
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm"
                   >
                     <option value="available">Available</option>
-                    <option value="rent">For Rent</option>
                     <option value="sold">Sold</option>
                   </select>
                 </div>
-                
-                {formData.property_status === 'rent' && (
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Expected Revenue / Profit
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    name="expected_revenue"
+                    value={formData.expected_revenue}
+                    onChange={handleChange}
+                    placeholder="Enter expected profit from this deal"
+                    min="0"
+                    className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm ${
+                      (fieldErrors.expected_revenue || serverErrors.expected_revenue) ? 'border-red-500 bg-red-50' : 
+                      (!isRevenueValid() && formData.expected_revenue ? 'border-red-500 bg-red-50' : 'border-gray-200')
+                    }`}
+                  />
+                  {(fieldErrors.expected_revenue || serverErrors.expected_revenue) && (
+                    <p className="text-red-500 text-xs mt-1">{fieldErrors.expected_revenue || serverErrors.expected_revenue}</p>
+                  )}
+                  {!isRevenueValid() && !fieldErrors.expected_revenue && !serverErrors.expected_revenue && formData.expected_revenue && (
+                    <p className="text-red-500 text-xs mt-1">
+                      ⚠️ Revenue cannot exceed property price ({parseFloat(formData.price).toLocaleString()} PKR)
+                    </p>
+                  )}
+                  <p className="text-gray-400 text-xs mt-1">
+                    Only sold properties will contribute to total revenue statistics
+                  </p>
+                </div>
+
+                {isBuyerNameRequired && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Rent Price (PKR/Month) *</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Buyer Name <span className="text-red-500">*</span>
+                    </label>
                     <input
-                      type="number"
-                      name="rent_price"
-                      value={formData.rent_price}
+                      type="text"
+                      name="buyer_name"
+                      value={formData.buyer_name}
                       onChange={handleChange}
-                      placeholder="e.g., 80000"
-                      min="0"
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm"
-                      required
+                      placeholder="Enter buyer's full name"
+                      className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm ${
+                        (fieldErrors.buyer_name || serverErrors.buyer_name) ? 'border-red-500 bg-red-50' : 'border-gray-200'
+                      }`}
+                      required={isBuyerNameRequired}
                     />
+                    {(fieldErrors.buyer_name || serverErrors.buyer_name) && (
+                      <p className="text-red-500 text-xs mt-1">{fieldErrors.buyer_name || serverErrors.buyer_name}</p>
+                    )}
+                    <p className="text-gray-400 text-xs mt-1">
+                      Required when marking property as sold
+                    </p>
                   </div>
                 )}
                 
@@ -626,11 +844,52 @@ const AddProperty = () => {
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm"
                   />
                 </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Property Type *</label>
+                  <select
+                    name="property_type"
+                    value={formData.property_type}
+                    onChange={handleChange}
+                    className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm ${
+                      (fieldErrors.property_type || serverErrors.property_type) ? 'border-red-500 bg-red-50' : 'border-gray-200'
+                    }`}
+                    required
+                  >
+                    <option value="">Select Type</option>
+                    <option value="house">House</option>
+                    <option value="plot">Plot</option>
+                  </select>
+                  {(fieldErrors.property_type || serverErrors.property_type) && (
+                    <p className="text-red-500 text-xs mt-1">{fieldErrors.property_type || serverErrors.property_type}</p>
+                  )}
+                </div>
+
+                {/* Description Field with proper validation */}
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Description <span className="text-red-500">*</span>
+                  </label>
+                  <textarea
+                    name="description"
+                    value={formData.description}
+                    onChange={handleChange}
+                    placeholder="Describe the property in detail..."
+                    rows="4"
+                    className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm ${
+                      (fieldErrors.description || serverErrors.description) ? 'border-red-500 bg-red-50' : 'border-gray-200'
+                    }`}
+                    required
+                  />
+                  {(fieldErrors.description || serverErrors.description) && (
+                    <p className="text-red-500 text-xs mt-1">{fieldErrors.description || serverErrors.description}</p>
+                  )}
+                </div>
               </div>
             </div>
 
             {/* Amenities Section */}
-            <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
+            <div className="bg-white rounded-xl border border-emerald-600 pt-3 pb-6 pl-6 pr-6 shadow-sm">
               <h2 className="text-lg font-semibold text-gray-800 mb-4">Amenities</h2>
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                 {[
@@ -661,7 +920,7 @@ const AddProperty = () => {
             </div>
 
             {/* Special Features Section */}
-            <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
+            <div className="bg-white rounded-xl border border-emerald-600 pt-3 pb-6 pl-6 pr-6 shadow-sm">
               <h2 className="text-lg font-semibold text-gray-800 mb-4">Special Features</h2>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                 <label className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 p-2 rounded-lg transition">
@@ -687,14 +946,13 @@ const AddProperty = () => {
               </div>
             </div>
 
-            {/* Custom Features & Description */}
-            <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
+            {/* Custom Features Section */}
+            <div className="bg-white rounded-xl border border-emerald-600 pt-3 pb-6 pl-6 pr-6 shadow-sm">
               <h2 className="text-lg font-semibold text-gray-800 mb-4">Additional Information</h2>
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Custom Features
-                    <span className="text-gray-400 font-normal ml-1">(optional)</span>
                   </label>
                   <textarea
                     name="custom_features"
@@ -702,20 +960,6 @@ const AddProperty = () => {
                     onChange={handleChange}
                     placeholder="Separate features with commas (e.g., Central AC, Smart Home, Solar Panels)"
                     rows="2"
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Description
-                    <span className="text-gray-400 font-normal ml-1">(optional)</span>
-                  </label>
-                  <textarea
-                    name="description"
-                    value={formData.description}
-                    onChange={handleChange}
-                    placeholder="Describe the property in detail..."
-                    rows="4"
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm"
                   />
                 </div>
@@ -727,7 +971,7 @@ const AddProperty = () => {
               <button
                 type="button"
                 onClick={() => navigate('/listings')}
-                className="px-6 py-3 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition"
+                className="px-6 py-3 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition border-emerald-600 border"
               >
                 Cancel
               </button>

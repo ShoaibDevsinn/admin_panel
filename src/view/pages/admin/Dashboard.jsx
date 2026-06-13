@@ -4,6 +4,7 @@ import Sidebar from '../../components/Sidebar'
 import Navbar from '../../components/AdminNavbar'
 import axios from 'axios'
 import { toast } from 'sonner'
+import { CheckCircle, Package, DollarSign, Home as HomeIcon, TrendingUp } from 'lucide-react';
 
 const Dashboard = ({ adminData, onLogout }) => {
   const navigate = useNavigate()
@@ -17,14 +18,15 @@ const Dashboard = ({ adminData, onLogout }) => {
     total_listings: 0,
     active_properties: 0,
     sold_properties: 0,
-    total_value: 0
+    total_value: 0,
+    total_revenue: 0  
   })
 
   const getAuthToken = () => {
     return localStorage.getItem('admin_access_token')
   }
 
-  // ✅ CORRECTED: Fetch admin's own listings from admin endpoint
+  // Fetch admin's own listings from admin endpoint
   const fetchListings = async () => {
     setLoading(true)
     try {
@@ -36,7 +38,7 @@ const Dashboard = ({ adminData, onLogout }) => {
         return
       }
       
-      // ✅ Use admin listings endpoint - returns only this admin's listings
+      // Fetch listings
       const response = await axios.get('http://127.0.0.1:8000/api/listings/admin/listings', {
         headers: {
           Authorization: `Bearer ${token}`
@@ -54,11 +56,17 @@ const Dashboard = ({ adminData, onLogout }) => {
         const soldCount = listings.filter(h => h.property_status === 'sold').length
         const totalValue = listings.reduce((sum, h) => sum + (parseFloat(h.price) || 0), 0)
         
+        //  NEW: Calculate total revenue from sold properties (using expected_revenue)
+        const totalRevenue = listings
+          .filter(h => h.property_status === 'sold' && h.expected_revenue)
+          .reduce((sum, h) => sum + (parseFloat(h.expected_revenue) || 0), 0)
+        
         setStats({
           total_listings: listings.length,
           active_properties: activeCount,
           sold_properties: soldCount,
-          total_value: totalValue
+          total_value: totalValue,
+          total_revenue: totalRevenue  
         })
       } else {
         toast.error('Failed to load listings')
@@ -88,15 +96,16 @@ const Dashboard = ({ adminData, onLogout }) => {
     fetchListings()
   }, [])
 
-  const formatPrice = (price) => {
+const formatPrice = (price, type) => {
     if (!price) return '₨ 0'
     const numPrice = parseFloat(price)
-    const inCrores = numPrice / 10000000
-    if (inCrores >= 1) {
-      return `₨ ${inCrores.toFixed(1)} Cr`
+    if (numPrice >= 10000000) {
+      return `₨ ${(numPrice / 10000000).toFixed(1)} Cr`
     }
-    const inLacs = numPrice / 100000
-    return `₨ ${inLacs.toFixed(1)} Lac`
+    if (numPrice >= 100000) {
+      return `₨ ${(numPrice / 100000).toFixed(1)} Lac`
+    }
+    return `₨ ${numPrice.toLocaleString()}`
   }
 
   const formatNumber = (num) => {
@@ -166,11 +175,12 @@ const Dashboard = ({ adminData, onLogout }) => {
     }
   }
 
-  const statCards = [
-    { label: 'Total Listings', value: stats.total_listings, icon: '🏠', color: 'blue' },
-    { label: 'Active Properties', value: stats.active_properties, icon: '✅', color: 'green' },
-    { label: 'Sold Properties', value: stats.sold_properties, icon: '📦', color: 'gray' },
-    { label: 'Total Portfolio Value', value: formatNumber(stats.total_value), icon: '💰', color: 'purple' },
+  const statItems = [
+    { label: 'Total Listings', value: stats.total_listings, icon: HomeIcon, color: 'blue' },
+    { label: 'Active Properties', value: stats.active_properties, icon: CheckCircle, color: 'green' },
+    { label: 'Sold Properties', value: stats.sold_properties, icon: Package, color: 'gray' },
+    // { label: 'Total Portfolio Value', value: formatNumber(stats.total_value), icon: DollarSign, color: 'purple' },
+    { label: 'Total Revenue / Profit', value: formatNumber(stats.total_revenue), icon: TrendingUp, color: 'emerald' }
   ]
 
   const filteredHouses = houses.filter(house => {
@@ -229,29 +239,50 @@ const Dashboard = ({ adminData, onLogout }) => {
             <p className="text-gray-500 mt-1">Here's what's happening with your properties today.</p>
           </div>
 
-          {/* Stats Grid */}
+          {/* Stats Grid - Now with 5 cards */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-            {statCards.map((stat, idx) => (
-              <div key={idx} className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm hover:shadow-md transition">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">{stat.label}</p>
-                    <p className="text-2xl font-bold text-gray-900 mt-1">{stat.value}</p>
-                  </div>
-                  <div className="w-10 h-10 rounded-lg bg-opacity-10 flex items-center justify-center text-xl">
-                    {stat.icon}
+            {statItems.map((stat, idx) => {
+              const bgColorClasses = {
+                blue: 'bg-blue-100',
+                green: 'bg-green-100',
+                gray: 'bg-gray-100',
+                purple: 'bg-purple-100',
+                emerald: 'bg-emerald-100'  
+              };
+              
+              const iconColorClasses = {
+                blue: 'text-blue-600',
+                green: 'text-green-600',
+                gray: 'text-gray-600',
+                purple: 'text-purple-600',
+                emerald: 'text-emerald-600'  
+              };
+              
+              return (
+                <div key={idx} className="bg-white rounded-xl border border-emerald-500 p-4 shadow-sm hover:shadow-md transition">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">{stat.label}</p>
+                      <p className="text-2xl font-bold text-gray-900 mt-1">{stat.value}</p>
+                    </div>
+                    <div className={`w-11 h-11 rounded-lg flex items-center justify-center ${bgColorClasses[stat.color]}`}>
+                      {(() => {
+                        const Icon = stat.icon;
+                        return <Icon className={`w-7 h-7 ${iconColorClasses[stat.color]}`} />;
+                      })()}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* Filters Bar */}
-          <div className="bg-white rounded-xl border border-gray-100 p-4 mb-6 shadow-sm">
+          <div className="bg-white rounded-xl border border-emerald-500 p-4 mb-6 shadow-sm">
             <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
               <div className="flex-1 flex flex-col sm:flex-row gap-4 w-full lg:w-auto">
                 <div className="flex-1 relative">
-                  <svg className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="absolute left-3 top-2.5 w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                   </svg>
                   <input
@@ -259,7 +290,7 @@ const Dashboard = ({ adminData, onLogout }) => {
                     placeholder="Search by property name or location..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm"
+                    className="w-full pl-9 pr-4 py-2 border border-emerald-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm"
                   />
                 </div>
                 <div className="flex gap-2">
@@ -291,63 +322,103 @@ const Dashboard = ({ adminData, onLogout }) => {
           </div>
 
           {/* Properties Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredHouses.length === 0 ? (
-              <div className="col-span-full text-center py-12">
-                <div className="text-4xl mb-3">🏠</div>
-                <p className="text-gray-500">No properties found</p>
-                <Link to="/add-property">
-                  <button className="mt-4 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 transition">
-                    Add Your First Property
-                  </button>
-                </Link>
+       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+  {filteredHouses.length === 0 ? (
+    <div className="col-span-full text-center py-12">
+      <div className="inline-block">
+        <HomeIcon className="w-17 h-17 text-emerald-500 mx-auto" />
+      </div>
+      <p className="text-gray-500 text-xl">No properties found</p>
+    </div>
+  ) : (
+    filteredHouses.map((house) => (
+     <Link 
+  key={house.listing_id} 
+  to={`/property/${house.listing_id}`}
+  className="bg-white rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition overflow-hidden block group"
+>
+        {/* Image Section */}
+        <div className="h-36 bg-gradient-to-br from-emerald-100 to-teal-100 flex items-center justify-center text-5xl flex-shrink-0 relative">
+          {house.primary_image ? (
+            <img src={house.primary_image} alt={house.title} className="w-full h-full object-cover" />
+          ) : (
+            <span className="text-4xl">{getPropertyIcon(house.title)}</span>
+          )}
+          
+          {/* Status Badge - SOLD */}
+         {house.property_status === 'sold' && (
+            <div className="absolute top-2 right-2 bg-red-500 text-white text-xs px-2 py-1 rounded-full shadow-md">
+              SOLD
+            </div>
+          )}
+          {house.property_status === 'available' && (
+            <div className="absolute top-2 right-2 bg-green-500 text-white text-xs px-2 py-1 rounded-full shadow-md">
+              AVAILABLE
+            </div>
+          )}
+          
+          {/* Profit Badge */}
+          {house.property_status === 'sold' && house.expected_revenue && (
+            <div className="absolute bottom-2 right-2 bg-emerald-600 text-white text-xs px-2 py-1 rounded-full font-semibold shadow-md">
+              Profit: {formatPrice(house.expected_revenue)}
+            </div>
+          )}
+
+          {/* Buyer Name Badge */}
+          {house.property_status === 'sold' && house.buyer_name && (
+            <div className="absolute bottom-2 left-2 bg-amber-500 text-white text-xs px-2 py-1 rounded-full shadow-md font-medium">
+              {house.buyer_name}
+            </div>
+          )}
+        </div>
+        
+        <div className="p-3 flex flex-col flex-1">
+          <div>
+            <h3 className="text-base font-semibold text-gray-900 line-clamp-1">{house.title}</h3>
+            <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">{house.location_name || 'N/A'}</p>
+          </div>
+          
+          <div className="flex items-center gap-2 mt-2">
+            <span className="text-xs text-gray-600">{house.bedrooms || 0} beds</span>
+            <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
+            <span className="text-xs text-gray-600">{house.bathrooms || 0} baths</span>
+            <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
+            <span className="text-xs text-gray-600">{house.area_marla || 0} Marla</span>
+          </div>
+          
+          <div className="mt-3 pt-2 border-t border-gray-100">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-bold text-emerald-600">{formatPrice(house.price)}</p>
+                {/* <span className="text-xs text-gray-400">
+                  {house.property_status === 'sold' ? 'Sold' : 
+                   house.property_status === 'rent' ? 'For Rent' : 'For Sale'}
+                </span> */}
               </div>
-            ) : (
-              filteredHouses.map((house) => (
-                <Link 
-                  key={house.listing_id} 
-                  to={`/edit-property/${house.listing_id}`}
-                  className="bg-white rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition overflow-hidden block group"
+              {/* <div className="flex gap-1">
+                <span className="px-2 py-1 text-xs text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded transition cursor-pointer">
+                  EDIT
+                </span>
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    deleteProperty(house.listing_id);
+                  }}
+                  className="px-2 py-1 text-xs text-red-500 hover:text-red-600 hover:bg-red-50 rounded transition"
                 >
-                  {/* Image Section */}
-                  <div className="h-40 bg-gradient-to-br from-emerald-100 to-teal-100 flex items-center justify-center text-5xl relative">
-                    {house.primary_image ? (
-                      <img 
-                        src={house.primary_image} 
-                        alt={house.title}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      getPropertyIcon(house.title)
-                    )}
-                    <div className="absolute top-2 right-2">
-                      {getStatusBadge(house.property_status)}
-                    </div>
-                  </div>
-                  
-                  <div className="p-4">
-                    <div className="flex items-start justify-between mb-2">
-                      <div>
-                        <h3 className="text-lg font-semibold text-gray-900 line-clamp-1">{house.title}</h3>
-                        <p className="text-sm text-gray-500 mt-0.5">{house.location_name || 'Location not specified'}</p>
-                      </div>
-                    </div>
-                    
-                    <div className="flex items-center gap-3 mt-3">
-                      <span className="text-sm text-gray-600">{house.bedrooms || 0} beds</span>
-                      <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
-                      <span className="text-sm text-gray-600">{house.bathrooms || 0} baths</span>
-                      <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
-                      <span className="text-sm text-gray-600">{house.area_marla || 0} Marla</span>
-                    </div>
-                    
-                    <div className="mt-3 pt-3 border-t border-gray-100">
-                      <p className="text-xl font-bold text-emerald-600">{formatPrice(house.price)}</p>
-                      {house.property_status === 'rent' && house.rent_price && (
-                        <p className="text-sm text-blue-600 mt-1">Rent: {formatPrice(house.rent_price)}/month</p>
-                      )}
-                    </div>
-                  </div>
+                  DELETE
+                </button>
+              </div> */}
+            </div>
+            
+            {/* Show buyer name for sold properties */}
+            {/* {house.property_status === 'sold' && house.buyer_name && (
+              <p className="text-xs text-gray-500 mt-2">
+                Buyer: {house.buyer_name}
+              </p>
+            )} */}
+          </div>
+        </div>
                 </Link>
               ))
             )}
