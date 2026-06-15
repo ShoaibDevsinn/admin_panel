@@ -153,6 +153,10 @@ const AddProperty = () => {
 
   const isBuyerNameRequired = formData.property_status === 'sold';
 
+  // ✅ Determine if property type is Plot
+  const isPlot = formData.property_type === 'plot';
+  const isHouse = formData.property_type === 'house';
+
   const validateForm = () => {
     const errors = {};
     
@@ -191,6 +195,24 @@ const AddProperty = () => {
     if (formData.property_type === 'rent' && (!formData.rent_price || formData.rent_price <= 0)) {
       errors.rent_price = 'Rent price is required for rental properties';
     }
+
+    // ✅ Conditional validation: only validate house-specific fields if property type is 'house'
+    if (isHouse) {
+      if (!formData.bedrooms || formData.bedrooms <= 0) {
+        errors.bedrooms = 'Number of bedrooms is required for houses';
+      }
+      if (!formData.bathrooms || formData.bathrooms <= 0) {
+        errors.bathrooms = 'Number of bathrooms is required for houses';
+      }
+      if (!formData.kitchens || formData.kitchens <= 0) {
+        errors.kitchens = 'Number of kitchens is required for houses';
+      }
+      if (!formData.construction_year) {
+        errors.construction_year = 'Construction year is required for houses';
+      } else if (formData.construction_year < 1900 || formData.construction_year > 2026) {
+        errors.construction_year = 'Please enter a valid construction year (1900-2026)';
+      }
+    }
     
     setFieldErrors(errors);
     return Object.keys(errors).length === 0;
@@ -200,7 +222,6 @@ const AddProperty = () => {
     const newServerErrors = {};
     let firstErrorMessage = '';
     
-    // Iterate through all error fields
     for (const [field, messages] of Object.entries(errors)) {
       const errorMsg = Array.isArray(messages) ? messages[0] : messages;
       newServerErrors[field] = errorMsg;
@@ -210,7 +231,6 @@ const AddProperty = () => {
     setServerErrors(newServerErrors);
     setFieldErrors(prev => ({ ...prev, ...newServerErrors }));
     
-    // Show first error as toast
     if (firstErrorMessage) {
       toast.error(firstErrorMessage);
     }
@@ -219,7 +239,6 @@ const AddProperty = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    // Clear previous server errors
     setServerErrors({});
     
     if (!validateForm()) {
@@ -251,13 +270,25 @@ const AddProperty = () => {
       fd.append('property_type', formData.property_type)
       fd.append('description', formData.description.trim() || ' ')
       
-      // Optional fields with defaults
-      fd.append('bedrooms', (formData.bedrooms || '1').toString())
-      fd.append('bathrooms', (formData.bathrooms || '1').toString())
-      fd.append('kitchens', (formData.kitchens || '1').toString())
-      fd.append('number_of_floors', (formData.number_of_floors || '1').toString())
-      fd.append('servant_rooms', (formData.servant_rooms || '0').toString())
-      fd.append('store_rooms', (formData.store_rooms || '0').toString())
+      // ✅ Conditional field values: For plots, send default zero values
+      if (isHouse) {
+        fd.append('bedrooms', (formData.bedrooms || '1').toString())
+        fd.append('bathrooms', (formData.bathrooms || '1').toString())
+        fd.append('kitchens', (formData.kitchens || '1').toString())
+        fd.append('construction_year', (formData.construction_year || '').toString())
+        fd.append('number_of_floors', (formData.number_of_floors || '1').toString())
+        fd.append('servant_rooms', (formData.servant_rooms || '0').toString())
+        fd.append('store_rooms', (formData.store_rooms || '0').toString())
+      } else {
+        // For plots, send zeros or empty strings to avoid database errors
+        fd.append('bedrooms', '0')
+        fd.append('bathrooms', '0')
+        fd.append('kitchens', '0')
+        fd.append('construction_year', '')
+        fd.append('number_of_floors', '0')
+        fd.append('servant_rooms', '0')
+        fd.append('store_rooms', '0')
+      }
       
       if (formData.expected_revenue) {
         fd.append('expected_revenue', formData.expected_revenue.toString())
@@ -268,9 +299,6 @@ const AddProperty = () => {
       
       if (formData.rent_price) {
         fd.append('rent_price', formData.rent_price.toString())
-      }
-      if (formData.construction_year) {
-        fd.append('construction_year', formData.construction_year.toString())
       }
       if (formData.current_per_marla_rate) {
         fd.append('current_per_marla_rate', formData.current_per_marla_rate.toString())
@@ -477,7 +505,7 @@ const AddProperty = () => {
 
           <form onSubmit={handleSubmit} className="space-y-6">
             
-            {/* Image Upload Section */}
+            {/* Image Upload Section (unchanged) */}
             <div className="bg-white rounded-xl border border-emerald-500 pl-6 pr-6 pt-3 pb-6 shadow-sm">
               <h2 className="text-xl font-semibold text-gray-800">Property Images</h2>
               <p className="text-sm text-gray-500 mb-3">The first image will be the cover (max 6)</p>
@@ -582,6 +610,7 @@ const AddProperty = () => {
               <h2 className="text-lg font-semibold text-gray-800 mb-4">Property Details</h2>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Title, Location, Area, Price, Status, Expected Revenue, Buyer Name (unchanged) */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Property Title *</label>
                   <input
@@ -734,104 +763,128 @@ const AddProperty = () => {
                   </div>
                 )}
                 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Bedrooms</label>
-                  <input
-                    type="number"
-                    name="bedrooms"
-                    value={formData.bedrooms}
-                    onChange={handleChange}
-                    placeholder="3"
-                    min="1"
-                    max="10"
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Bathrooms</label>
-                  <input
-                    type="number"
-                    name="bathrooms"
-                    value={formData.bathrooms}
-                    onChange={handleChange}
-                    placeholder="3"
-                    min="1"
-                    max="10"
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Kitchens</label>
-                  <input
-                    type="number"
-                    name="kitchens"
-                    value={formData.kitchens}
-                    onChange={handleChange}
-                    placeholder="1"
-                    min="1"
-                    max="5"
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Construction Year</label>
-                  <input
-                    type="number"
-                    name="construction_year"
-                    value={formData.construction_year}
-                    onChange={handleChange}
-                    placeholder="e.g., 2020"
-                    min="1980"
-                    max="2026"
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Number of Floors</label>
-                  <input
-                    type="number"
-                    name="number_of_floors"
-                    value={formData.number_of_floors}
-                    onChange={handleChange}
-                    placeholder="1"
-                    min="1"
-                    max="10"
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Servant Rooms</label>
-                  <input
-                    type="number"
-                    name="servant_rooms"
-                    value={formData.servant_rooms}
-                    onChange={handleChange}
-                    placeholder="0"
-                    min="0"
-                    max="5"
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Store Rooms</label>
-                  <input
-                    type="number"
-                    name="store_rooms"
-                    value={formData.store_rooms}
-                    onChange={handleChange}
-                    placeholder="0"
-                    min="0"
-                    max="5"
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm"
-                  />
-                </div>
-                
+                {/* ✅ House-specific fields - only shown when property type is 'house' */}
+                {isHouse && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Bedrooms *</label>
+                      <input
+                        type="number"
+                        name="bedrooms"
+                        value={formData.bedrooms}
+                        onChange={handleChange}
+                        placeholder="3"
+                        min="1"
+                        max="10"
+                        className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm ${
+                          (fieldErrors.bedrooms || serverErrors.bedrooms) ? 'border-red-500 bg-red-50' : 'border-gray-200'
+                        }`}
+                      />
+                      {(fieldErrors.bedrooms || serverErrors.bedrooms) && (
+                        <p className="text-red-500 text-xs mt-1">{fieldErrors.bedrooms || serverErrors.bedrooms}</p>
+                      )}
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Bathrooms *</label>
+                      <input
+                        type="number"
+                        name="bathrooms"
+                        value={formData.bathrooms}
+                        onChange={handleChange}
+                        placeholder="3"
+                        min="1"
+                        max="10"
+                        className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm ${
+                          (fieldErrors.bathrooms || serverErrors.bathrooms) ? 'border-red-500 bg-red-50' : 'border-gray-200'
+                        }`}
+                      />
+                      {(fieldErrors.bathrooms || serverErrors.bathrooms) && (
+                        <p className="text-red-500 text-xs mt-1">{fieldErrors.bathrooms || serverErrors.bathrooms}</p>
+                      )}
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Kitchens *</label>
+                      <input
+                        type="number"
+                        name="kitchens"
+                        value={formData.kitchens}
+                        onChange={handleChange}
+                        placeholder="1"
+                        min="1"
+                        max="5"
+                        className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm ${
+                          (fieldErrors.kitchens || serverErrors.kitchens) ? 'border-red-500 bg-red-50' : 'border-gray-200'
+                        }`}
+                      />
+                      {(fieldErrors.kitchens || serverErrors.kitchens) && (
+                        <p className="text-red-500 text-xs mt-1">{fieldErrors.kitchens || serverErrors.kitchens}</p>
+                      )}
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Construction Year *</label>
+                      <input
+                        type="number"
+                        name="construction_year"
+                        value={formData.construction_year}
+                        onChange={handleChange}
+                        placeholder="e.g., 2020"
+                        min="1900"
+                        max="2026"
+                        className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm ${
+                          (fieldErrors.construction_year || serverErrors.construction_year) ? 'border-red-500 bg-red-50' : 'border-gray-200'
+                        }`}
+                      />
+                      {(fieldErrors.construction_year || serverErrors.construction_year) && (
+                        <p className="text-red-500 text-xs mt-1">{fieldErrors.construction_year || serverErrors.construction_year}</p>
+                      )}
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Number of Floors</label>
+                      <input
+                        type="number"
+                        name="number_of_floors"
+                        value={formData.number_of_floors}
+                        onChange={handleChange}
+                        placeholder="1"
+                        min="1"
+                        max="10"
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Servant Rooms</label>
+                      <input
+                        type="number"
+                        name="servant_rooms"
+                        value={formData.servant_rooms}
+                        onChange={handleChange}
+                        placeholder="0"
+                        min="0"
+                        max="5"
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Store Rooms</label>
+                      <input
+                        type="number"
+                        name="store_rooms"
+                        value={formData.store_rooms}
+                        onChange={handleChange}
+                        placeholder="0"
+                        min="0"
+                        max="5"
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm"
+                      />
+                    </div>
+                  </>
+                )}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Per Marla Rate (PKR)</label>
                   <input
@@ -865,7 +918,7 @@ const AddProperty = () => {
                   )}
                 </div>
 
-                {/* Description Field with proper validation */}
+                {/* Description Field */}
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Description <span className="text-red-500">*</span>
@@ -886,9 +939,16 @@ const AddProperty = () => {
                   )}
                 </div>
               </div>
+                {isPlot && (
+                  <div className="md:col-span-2">
+                    <div className="bg-red-50 p-3 rounded-lg text-red-700 text-sm mt-3">
+                      <p> Plot details: Bedrooms, bathrooms, kitchens, construction year, floors, servant rooms, and store rooms are not applicable for plots.</p>
+                    </div>
+                  </div>
+                )}
             </div>
 
-            {/* Amenities Section */}
+            {/* Amenities Section (unchanged) */}
             <div className="bg-white rounded-xl border border-emerald-600 pt-3 pb-6 pl-6 pr-6 shadow-sm">
               <h2 className="text-lg font-semibold text-gray-800 mb-4">Amenities</h2>
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -919,7 +979,7 @@ const AddProperty = () => {
               </div>
             </div>
 
-            {/* Special Features Section */}
+            {/* Special Features Section (unchanged) */}
             <div className="bg-white rounded-xl border border-emerald-600 pt-3 pb-6 pl-6 pr-6 shadow-sm">
               <h2 className="text-lg font-semibold text-gray-800 mb-4">Special Features</h2>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
@@ -946,7 +1006,7 @@ const AddProperty = () => {
               </div>
             </div>
 
-            {/* Custom Features Section */}
+            {/* Custom Features Section (unchanged) */}
             <div className="bg-white rounded-xl border border-emerald-600 pt-3 pb-6 pl-6 pr-6 shadow-sm">
               <h2 className="text-lg font-semibold text-gray-800 mb-4">Additional Information</h2>
               <div className="space-y-4">
@@ -966,7 +1026,7 @@ const AddProperty = () => {
               </div>
             </div>
 
-            {/* Action Buttons */}
+            {/* Action Buttons (unchanged) */}
             <div className="flex items-center justify-end gap-4">
               <button
                 type="button"

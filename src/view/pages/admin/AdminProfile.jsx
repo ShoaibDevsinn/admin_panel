@@ -212,9 +212,9 @@ const AdminProfile = () => {
   }
 
   const formatCurrency = (amount) => {
-    if (amount >= 10000000) return `PKR ${(amount / 10000000).toFixed(2)} Cr`
-    if (amount >= 100000) return `PKR ${(amount / 100000).toFixed(2)} Lac`
-    return `PKR ${amount.toLocaleString()}`
+    if (amount >=  10000000) return `Rs ${(amount / 10000000).toFixed(2)} Cr`
+    if (amount >= 100000) return `Rs ${(amount / 100000).toFixed(2)} Lac`
+    return `Rs ${amount.toLocaleString()}`
   }
 
   const formatDate = (dateString) => {
@@ -736,24 +736,25 @@ const AdminProfile = () => {
                       </thead>
                       <tbody>
                         {recentProperties.map(property => (
-                          <tr 
+                         <tr 
                             key={property.id} 
                             onClick={() => navigate(`/property/${property.id}`)}
                             className="border-b border-gray-50 hover:bg-gray-50 transition-colors cursor-pointer"
-                          >                            <td className="p-3">
+                          >
+                            <td className="p-3">
                               <div className="flex items-center gap-2">
-                                <div className="w-10 h-10 bg-gray-200 rounded-lg flex items-center justify-center text-lg">
+                                <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center text-lg">
                                   {property.image ? (
                                     <img src={property.image} alt={property.title} className="w-full h-full object-cover rounded-lg" />
                                   ) : (
                                     '🏠'
                                   )}
                                 </div>
-                                <span className="text-sm font-medium text-gray-800">{property.title}</span>
+                                <span className="text-sm font-medium text-gray-800 max-w-[200px] truncate">{property.title}</span>
                               </div>
                             </td>
                             <td className="p-3 text-sm text-gray-600">{property.type}</td>
-                            <td className="p-3 text-sm text-gray-600">{property.location}</td>
+                            <td className="p-1 text-sm text-gray-600">{property.location}</td>
                             <td className="p-3 text-sm text-gray-600">{property.size}</td>
                             <td className="p-3 text-sm font-semibold text-gray-800">{formatCurrency(property.price)}</td>
                             <td className="p-3">
@@ -793,7 +794,7 @@ const AdminProfile = () => {
                     <div className="flex items-center gap-2 text-sm">
                       <span className="text-gray-500">Total Profit:</span>
                       <span className="font-bold text-green-600">
-                        {formatCurrency(soldProperties.reduce((sum, p) => sum + p.profit, 0))}
+                       {formatCurrency(stats.totalRevenue)}
                       </span>
                     </div>
                   )}
@@ -808,7 +809,7 @@ const AdminProfile = () => {
                           <th className="text-left p-3 text-xs font-semibold text-white uppercase">Type</th>
                           <th className="text-left p-3 text-xs font-semibold text-white uppercase">Location</th>
                           <th className="text-left p-3 text-xs font-semibold text-white uppercase">Size</th>
-                          <th className="text-left p-3 text-xs font-semibold text-white uppercase">Sold Price</th>
+                          {/* <th className="text-left p-3 text-xs font-semibold text-white uppercase">Sold Price</th> */}
                           <th className="text-left p-3 text-xs font-semibold text-white uppercase">Buyer</th>
                           <th className="text-left p-3 text-xs font-semibold text-white uppercase">Sold Date</th>
                           <th className="text-left p-3 text-xs font-semibold text-white uppercase">Profit</th>
@@ -821,7 +822,7 @@ const AdminProfile = () => {
                             onClick={() => navigate(`/property/${property.id}`)}
                             className="border-b border-gray-50 hover:bg-gray-50 transition-colors cursor-pointer"
                           >
-                            <td className="p-3">
+                            <td className="p-2">
                               <div className="flex items-center gap-2">
                                 <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center text-lg">
                                   {property.image ? (
@@ -836,7 +837,7 @@ const AdminProfile = () => {
                             <td className="p-3 text-sm text-gray-600">{property.type || 'Property'}</td>
                             <td className="p-3 text-sm text-gray-600">{property.location || 'N/A'}</td>
                             <td className="p-3 text-sm text-gray-600">{property.size || 'N/A'}</td>
-                            <td className="p-3 text-sm font-semibold text-gray-800">{formatCurrency(property.price)}</td>
+                            {/* <td className="p-3 text-sm font-semibold text-gray-800">{formatCurrency(property.price)}</td> */}
                             <td className="p-3 text-sm text-gray-600">{property.buyer}</td>
                             <td className="p-3 text-sm text-gray-500">
                               {property.soldDate ? formatDate(property.soldDate) : 'N/A'}

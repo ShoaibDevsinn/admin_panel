@@ -2,24 +2,41 @@ import React from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Home as HomeIcon, LayoutDashboard, List, Plus, TrendingUp, Users, LogOut } from 'lucide-react';
 
-
 const Sidebar = ({ isOpen, onClose }) => {
   const location = useLocation()
   const navigate = useNavigate()
   
   const menuItems = [
     { name: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
-    { name: 'Manage Lists', icon: List, path: '/properties' },
+    { name: 'Manage Lists', icon: List, path: '/properties', activePaths: ['/properties', '/listings', '/property'] },
     { name: 'Add Property', icon: Plus, path: '/add-property' },
-    { name: 'Market Trends', icon: TrendingUp, path: '/property-prices' },
+    { name: 'Market Trends', icon: TrendingUp, path: '/property-prices', activePaths: ['/property-prices', '/market-trends'] },
     { name: 'User Management', icon: Users, path: '/user-management' },
   ]
 
-    const isActive = (path) => {
-    if (path === '/dashboard') {
-      return location.pathname === '/dashboard'
+  // ✅ FIXED: Better active path detection
+  const isActive = (item) => {
+    const currentPath = location.pathname
+    
+    // Check exact match
+    if (currentPath === item.path) return true
+    
+    // Check if current path is in activePaths array
+    if (item.activePaths) {
+      return item.activePaths.some(path => currentPath === path || currentPath.startsWith(path + '/'))
     }
-    return location.pathname === path
+    
+    // For paths like /property/123, check if it starts with the base path
+    if (item.path !== '/dashboard' && currentPath.startsWith(item.path)) {
+      return true
+    }
+    
+    // Special case for Manage Lists - /listings and /properties should both be active
+    if (item.name === 'Manage Lists' && (currentPath === '/listings' || currentPath.startsWith('/property/'))) {
+      return true
+    }
+    
+    return false
   }
 
   const handleLogout = async () => {
@@ -56,12 +73,11 @@ const Sidebar = ({ isOpen, onClose }) => {
         <div className="pl-5 pr-5">
           {/* Logo */}
           <div className="flex items-center gap-3 mt-2 mb-5 border-b border-emerald-500 pb-3">
-              <div className="inline-block ">
-        <HomeIcon className="w-11 h-11 text-emerald-500 mx-auto" />
-      {/* </div> */}
+            <div className="inline-block">
+              <HomeIcon className="w-11 h-11 text-emerald-500 mx-auto" />
             </div>
             <div>
-              <h2 className="font-bold text-gray-800 text-lg" >Lahore Property</h2>
+              <h2 className="font-bold text-gray-800 text-lg">Lahore Property</h2>
               <p className="text-xs text-gray-500">Admin Panel</p>
             </div>
           </div>
@@ -80,24 +96,24 @@ const Sidebar = ({ isOpen, onClose }) => {
           <nav className="space-y-1 mt-8 lg:mt-0">
             {menuItems.map((item, index) => {
               const Icon = item.icon
-              const active = isActive(item.path)
+              const active = isActive(item)
               return (
-              <Link
+                <Link
                   key={index}
                   to={item.path}
                   onClick={onClose}
                   className={`
-                    flex items-center gap-3 px-3 py-2.5 rounded-lg 
+                    flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200
                     ${active 
-                    ? 'bg-emerald-500 text-white' 
-                    : 'text-gray-600 hover:bg-emerald-50 hover:text-emerald-600'
-                  }
-                `}
-              >
-                 <Icon className="w-5 h-5" />
-                  <span className="text-sl font-medium">{item.name}</span>
-              </Link>
-            )
+                      ? 'bg-emerald-500 text-white shadow-md' 
+                      : 'text-gray-600 hover:bg-emerald-50 hover:text-emerald-600'
+                    }
+                  `}
+                >
+                  <Icon className="w-5 h-5" />
+                  <span className="text-sm font-medium">{item.name}</span>
+                </Link>
+              )
             })}
           </nav>
 
@@ -108,7 +124,7 @@ const Sidebar = ({ isOpen, onClose }) => {
               className="flex items-center gap-3 text-gray-500 hover:text-red-600 w-full px-3 py-2.5 rounded-lg transition-all duration-200 hover:bg-red-50"
             >
               <LogOut className="w-5 h-5" />
-              <span className="text-sl font-medium">Logout</span>
+              <span className="text-sm font-medium">Logout</span>
             </button>
           </div>
         </div>
